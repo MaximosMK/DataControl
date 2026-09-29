@@ -85,7 +85,7 @@ if (-not (Test-Path $xamlFile)) {
     exit 1
 }
 
-$sr = New-Object System.IO.StreamReader($xamlFile)
+$sr = New-Object System.IO.StreamReader($xamlFile, [System.Text.Encoding]::UTF8)
 $xr = [System.Xml.XmlReader]::Create($sr)
 $Window = [System.Windows.Markup.XamlReader]::Load($xr)
 $sr.Close()
@@ -94,10 +94,10 @@ $sr.Close()
 $script:UI = @{}
 $elementNames = @(
     "BtnNavDashboard", "BtnNavLiveApps", "BtnNavAppRules", "BtnNavAppHistory", "BtnNavAnalytics", "BtnNavFirewall", "BtnNavSettings",
-    "BtnSidebarToggleWifi", "BtnSidebarExit", "SidebarSentryStatus", "SidebarAdapterLabel",
-    "WorkspaceTitle", "WorkspaceSubtitle", "TxtLinkStatus", "BadgeLinkStatus", "TxtLiveSpeedTop", "ToastBanner", "ToastText",
-    "BadgeNetworkProfile", "TxtNetworkProfileName", "BtnToggleNetworkProfile",
-    "BadgeGatekeeperHeader", "TxtGatekeeperHeader",
+    "BtnSidebarToggleWifi", "BtnSidebarExit", "DotSidebarSentry", "SidebarSentryStatus", "SidebarNetworkProfile", "SidebarAdapterLabel",
+    "WorkspaceTitle", "WorkspaceSubtitle", "DotLinkStatus", "TxtLinkStatus", "BadgeLinkStatus", "TxtLiveSpeedTop", "ToastBanner", "ToastText",
+    "BadgeNetworkProfile", "DotNetworkProfile", "TxtNetworkProfileName", "BtnToggleNetworkProfile",
+    "BadgeGatekeeperHeader", "DotGatekeeperHeader", "TxtGatekeeperHeader",
     "BadgeGatekeeperMode", "TxtGatekeeperMode", "BtnToggleGatekeeper", "BtnTestPromptModal",
     "TxtManualRulePath", "BtnBrowseManualRule", "BtnAddManualAllow", "BtnAddManualQuota", "BtnAddManualBlock",
     "ViewDashboard", "ViewLiveApps", "ViewAppRules", "ViewAppHistory", "ViewAnalytics", "ViewFirewall", "ViewSettings",

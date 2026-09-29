@@ -104,21 +104,41 @@ function Set-ActiveView ([string]$viewName) {
 function Refresh-NetworkProfileStatus {
     $prof = Get-ActiveNetworkProfile
     if ($prof.IsUnlimited) {
-        $script:UI.BadgeNetworkProfile.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#064E3B"))
-        $script:UI.TxtNetworkProfileName.Text = "$($prof.Name): 🚀 Unlimited"
+        if ($script:UI.BadgeNetworkProfile) {
+            $script:UI.BadgeNetworkProfile.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#064E3B"))
+        }
+        if ($script:UI.DotNetworkProfile) {
+            $script:UI.DotNetworkProfile.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+        }
+        $script:UI.TxtNetworkProfileName.Text = "$($prof.Name): UNLIMITED"
         $script:UI.TxtNetworkProfileName.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
         $script:UI.BtnToggleNetworkProfile.Content = "Switch to Metered"
-        $script:UI.SidebarSentryStatus.Text = "● UNLIMITED MODE (Free)"
+        if ($script:UI.DotSidebarSentry) {
+            $script:UI.DotSidebarSentry.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+        }
+        $script:UI.SidebarSentryStatus.Text = "UNLIMITED MODE (Free)"
         $script:UI.SidebarSentryStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
-        $script:UI.SidebarNetworkProfile.Text = "Profile: $($prof.Name) (Unlimited)"
+        if ($script:UI.SidebarNetworkProfile) {
+            $script:UI.SidebarNetworkProfile.Text = "Profile: $($prof.Name) (Unlimited)"
+        }
     } else {
-        $script:UI.BadgeNetworkProfile.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#451A03"))
-        $script:UI.TxtNetworkProfileName.Text = "$($prof.Name): 🛡️ Metered"
+        if ($script:UI.BadgeNetworkProfile) {
+            $script:UI.BadgeNetworkProfile.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#451A03"))
+        }
+        if ($script:UI.DotNetworkProfile) {
+            $script:UI.DotNetworkProfile.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
+        }
+        $script:UI.TxtNetworkProfileName.Text = "$($prof.Name): METERED"
         $script:UI.TxtNetworkProfileName.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
         $script:UI.BtnToggleNetworkProfile.Content = "Switch to Unlimited"
-        $script:UI.SidebarSentryStatus.Text = "● SENTRY ACTIVE"
+        if ($script:UI.DotSidebarSentry) {
+            $script:UI.DotSidebarSentry.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+        }
+        $script:UI.SidebarSentryStatus.Text = "SENTRY ACTIVE"
         $script:UI.SidebarSentryStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
-        $script:UI.SidebarNetworkProfile.Text = "Profile: $($prof.Name) (Metered)"
+        if ($script:UI.SidebarNetworkProfile) {
+            $script:UI.SidebarNetworkProfile.Text = "Profile: $($prof.Name) (Metered)"
+        }
     }
 }
 
@@ -146,11 +166,14 @@ function Refresh-GatekeeperStatus {
             $script:UI.TxtGatekeeperMode.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
         }
         if ($script:UI.BtnToggleGatekeeper) {
-            $script:UI.BtnToggleGatekeeper.Content = "⏸️ Turn OFF Prompts"
+            $script:UI.BtnToggleGatekeeper.Content = "Turn OFF Prompts"
             $script:UI.BtnToggleGatekeeper.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#334155"))
         }
         if ($script:UI.BadgeGatekeeperHeader) {
             $script:UI.BadgeGatekeeperHeader.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#064E3B"))
+        }
+        if ($script:UI.DotGatekeeperHeader) {
+            $script:UI.DotGatekeeperHeader.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
         }
         if ($script:UI.TxtGatekeeperHeader) {
             $script:UI.TxtGatekeeperHeader.Text = "Prompts: ON"
@@ -165,11 +188,14 @@ function Refresh-GatekeeperStatus {
             $script:UI.TxtGatekeeperMode.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#94A3B8"))
         }
         if ($script:UI.BtnToggleGatekeeper) {
-            $script:UI.BtnToggleGatekeeper.Content = "⚡ Turn ON Prompts"
+            $script:UI.BtnToggleGatekeeper.Content = "Turn ON Prompts"
             $script:UI.BtnToggleGatekeeper.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0284C7"))
         }
         if ($script:UI.BadgeGatekeeperHeader) {
             $script:UI.BadgeGatekeeperHeader.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#1E293B"))
+        }
+        if ($script:UI.DotGatekeeperHeader) {
+            $script:UI.DotGatekeeperHeader.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#94A3B8"))
         }
         if ($script:UI.TxtGatekeeperHeader) {
             $script:UI.TxtGatekeeperHeader.Text = "Prompts: OFF"
@@ -227,29 +253,44 @@ function Refresh-AdapterStatus {
         $adapter = Get-NetAdapter -Name $sel -ErrorAction SilentlyContinue
         if ($adapter) {
             if ($adapter.Status -eq "Up") {
-                $script:UI.TxtLinkStatus.Text = "● CONNECTED (UP)"
+                if ($script:UI.DotLinkStatus) {
+                    $script:UI.DotLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+                }
+                $script:UI.TxtLinkStatus.Text = "CONNECTED (UP)"
                 $script:UI.TxtLinkStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
                 $script:UI.BadgeLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#064E3B"))
                 $script:UI.TxtAdapterDetails.Text = "Status: Connected (Up) | Target Adapter: $sel"
             } elseif ($adapter.Status -eq "Disabled") {
-                $script:UI.TxtLinkStatus.Text = "● DISABLED"
+                if ($script:UI.DotLinkStatus) {
+                    $script:UI.DotLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
+                }
+                $script:UI.TxtLinkStatus.Text = "DISABLED"
                 $script:UI.TxtLinkStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
                 $script:UI.BadgeLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#4C0519"))
                 $script:UI.TxtAdapterDetails.Text = "Status: Disabled | Network hardware is disabled"
             } else {
-                $script:UI.TxtLinkStatus.Text = "● $($adapter.Status.ToUpper())"
+                if ($script:UI.DotLinkStatus) {
+                    $script:UI.DotLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
+                }
+                $script:UI.TxtLinkStatus.Text = $adapter.Status.ToUpper()
                 $script:UI.TxtLinkStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
                 $script:UI.BadgeLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#451A03"))
                 $script:UI.TxtAdapterDetails.Text = "Status: $($adapter.Status) on $sel"
             }
         } else {
-            $script:UI.TxtLinkStatus.Text = "● NOT FOUND"
+            if ($script:UI.DotLinkStatus) {
+                $script:UI.DotLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
+            }
+            $script:UI.TxtLinkStatus.Text = "NOT FOUND"
             $script:UI.TxtLinkStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
             $script:UI.BadgeLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#4C0519"))
             $script:UI.TxtAdapterDetails.Text = "Adapter '$sel' was not found on this system."
         }
     } catch {
-        $script:UI.TxtLinkStatus.Text = "● ERROR"
+        if ($script:UI.DotLinkStatus) {
+            $script:UI.DotLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
+        }
+        $script:UI.TxtLinkStatus.Text = "ERROR"
     }
 }
 

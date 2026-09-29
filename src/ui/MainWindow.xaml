@@ -312,11 +312,14 @@
                 <StackPanel Grid.Row="2" Margin="12,0,12,14">
                     <Border CornerRadius="8" Background="#131B2E" BorderBrush="#1E2D4A" BorderThickness="1" Padding="12,9" Margin="0,0,0,8">
                         <StackPanel>
-                            <TextBlock x:Name="SidebarSentryStatus" Text="● SENTRY ACTIVE" Foreground="#10B981" FontWeight="Bold" FontSize="11"/>
-                            <TextBlock x:Name="SidebarNetworkProfile" Text="Profile: MiFi (Metered)" Foreground="#94A3B8" FontSize="11" Margin="0,2,0,0"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border x:Name="DotSidebarSentry" Width="6" Height="6" CornerRadius="3" Background="#10B981" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="SidebarSentryStatus" Text="SENTRY ACTIVE" Foreground="#10B981" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock x:Name="SidebarNetworkProfile" Text="Profile: MiFi (Metered)" Foreground="#94A3B8" FontSize="11" Margin="0,3,0,0"/>
                         </StackPanel>
                     </Border>
-                    <Button x:Name="BtnSidebarToggleWifi" Content="⚡ Toggle Adapter" Style="{StaticResource SecondaryBtn}" Margin="0,0,0,5"/>
+                    <Button x:Name="BtnSidebarToggleWifi" Content="Toggle Adapter" Style="{StaticResource SecondaryBtn}" Margin="0,0,0,5"/>
                     <Button x:Name="BtnSidebarExit" Content="Exit DataControl" Style="{StaticResource SecondaryBtn}" Foreground="#F43F5E"/>
                 </StackPanel>
             </Grid>
@@ -349,15 +352,19 @@
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                         <!-- Network Mode Badge & Toggle -->
                         <Border x:Name="BadgeNetworkProfile" CornerRadius="6" Background="#451A03" Padding="10,4" Margin="0,0,8,0">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock x:Name="TxtNetworkProfileName" Text="MiFi: 🛡️ Metered" Foreground="#F59E0B" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border x:Name="DotNetworkProfile" Width="6" Height="6" CornerRadius="3" Background="#F59E0B" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TxtNetworkProfileName" Text="MiFi: METERED" Foreground="#F59E0B" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Border>
                         <Button x:Name="BtnToggleNetworkProfile" Content="Toggle Mode" Style="{StaticResource SecondaryBtn}" Padding="8,4" FontSize="11" Margin="0,0,10,0"/>
 
                         <!-- Zero-Trust Gatekeeper Mode Indicator Badge -->
                         <Border x:Name="BadgeGatekeeperHeader" CornerRadius="6" Background="#1E293B" Padding="8,4" Margin="0,0,12,0">
-                            <TextBlock x:Name="TxtGatekeeperHeader" Text="Prompts: OFF" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Border x:Name="DotGatekeeperHeader" Width="6" Height="6" CornerRadius="3" Background="#94A3B8" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TxtGatekeeperHeader" Text="Prompts: OFF" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11" VerticalAlignment="Center"/>
+                            </StackPanel>
                         </Border>
 
                         <!-- Speedometer Pill -->
@@ -394,8 +401,11 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                                         <TextBlock Text="Target Adapter:" Foreground="#F8FAFC" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="0,0,10,0"/>
                                         <ComboBox x:Name="ComboAdapters" Width="180" Height="26"/>
-                                        <Border x:Name="BadgeLinkStatus" CornerRadius="5" Background="#064E3B" Padding="8,3" Margin="10,0,0,0">
-                                            <TextBlock x:Name="TxtLinkStatus" Text="● CONNECTED" Foreground="#10B981" FontWeight="Bold" FontSize="10.5"/>
+                                        <Border x:Name="BadgeLinkStatus" CornerRadius="5" Background="#064E3B" Padding="8,4" Margin="10,0,0,0">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Border x:Name="DotLinkStatus" Width="6" Height="6" CornerRadius="3" Background="#10B981" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                <TextBlock x:Name="TxtLinkStatus" Text="CONNECTED (UP)" Foreground="#10B981" FontWeight="Bold" FontSize="10.5" VerticalAlignment="Center"/>
+                                            </StackPanel>
                                         </Border>
                                     </StackPanel>
                                     <TextBlock x:Name="TxtAdapterDetails" Text="Status: Connected (Up) | Profile: Metered Cellular Hotspot" Foreground="#64748B" FontSize="11.5" Margin="0,6,0,0"/>
@@ -480,10 +490,10 @@
                         <Border Style="{StaticResource ModernCard}">
                             <StackPanel>
                                 <Grid Margin="0,0,0,8">
-                                    <TextBlock Text="⚡ TOP LIVE BANDWIDTH CONSUMERS" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                    <TextBlock Text="TOP LIVE BANDWIDTH CONSUMERS" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
                                     <TextBlock Text="Live Sentry Sample" Foreground="#64748B" FontSize="11" HorizontalAlignment="Right"/>
                                 </Grid>
-                                <ListView x:Name="ListDashboardTopApps" Height="140">
+                                <ListView x:Name="ListDashboardTopApps" Height="175" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                     <ListView.View>
                                         <GridView>
                                             <GridViewColumn Header="Application" Width="220" DisplayMemberBinding="{Binding Path=Name}"/>
@@ -533,8 +543,8 @@
                             </StackPanel>
 
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                <Button x:Name="BtnToggleGatekeeper" Content="⚡ Turn ON Prompts" Style="{StaticResource PrimaryBtn}" Padding="12,6" Margin="0,0,8,0"/>
-                                <Button x:Name="BtnTestPromptModal" Content="🧪 Test Prompt" Style="{StaticResource SecondaryBtn}" Padding="10,6"/>
+                                <Button x:Name="BtnToggleGatekeeper" Content="Turn ON Prompts" Style="{StaticResource PrimaryBtn}" Padding="12,6" Margin="0,0,8,0"/>
+                                <Button x:Name="BtnTestPromptModal" Content="Test Prompt Window" Style="{StaticResource SecondaryBtn}" Padding="10,6"/>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -589,7 +599,7 @@
                                 <GridViewColumn Header="Quota Limit" Width="100" DisplayMemberBinding="{Binding Path=QuotaDisplay}"/>
                                 <GridViewColumn Header="Consumed Today" Width="120" DisplayMemberBinding="{Binding Path=ConsumedDisplay}"/>
                                 <GridViewColumn Header="Last Updated" Width="150" DisplayMemberBinding="{Binding Path=LastUpdated}"/>
-                                <GridViewColumn Header="Executable Binary Path" Width="300" DisplayMemberBinding="{Binding Path=Path}"/>
+                                <GridViewColumn Header="Executable Binary Path" Width="480" DisplayMemberBinding="{Binding Path=Path}"/>
                             </GridView>
                         </ListView.View>
                     </ListView>
@@ -634,7 +644,7 @@
                                 <GridViewColumn Header="Live Speed" Width="120" DisplayMemberBinding="{Binding Path=Speed}"/>
                                 <GridViewColumn Header="Session Total" Width="120" DisplayMemberBinding="{Binding Path=SessionBytes}"/>
                                 <GridViewColumn Header="Sockets" Width="75" DisplayMemberBinding="{Binding Path=Sockets}"/>
-                                <GridViewColumn Header="Executable Path" Width="360" DisplayMemberBinding="{Binding Path=Path}"/>
+                                <GridViewColumn Header="Executable Path" Width="450" DisplayMemberBinding="{Binding Path=Path}"/>
                             </GridView>
                         </ListView.View>
                     </ListView>
@@ -676,7 +686,7 @@
                                 <GridViewColumn Header="Application Name" Width="200" DisplayMemberBinding="{Binding Path=Name}"/>
                                 <GridViewColumn Header="Total Consumed" Width="140" DisplayMemberBinding="{Binding Path=TotalBytes}"/>
                                 <GridViewColumn Header="Last Seen Timestamp" Width="160" DisplayMemberBinding="{Binding Path=LastSeen}"/>
-                                <GridViewColumn Header="Executable Path" Width="380" DisplayMemberBinding="{Binding Path=Path}"/>
+                                <GridViewColumn Header="Executable Path" Width="450" DisplayMemberBinding="{Binding Path=Path}"/>
                             </GridView>
                         </ListView.View>
                     </ListView>

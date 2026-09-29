@@ -107,7 +107,6 @@ function Show-PromptWindow ($item) {
             <!-- Header -->
             <Grid Grid.Row="0">
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="🛡️" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center"/>
                     <TextBlock Text="NEW OUTBOUND ACCESS REQUEST" Foreground="#38BDF8" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
                 </StackPanel>
                 <TextBlock x:Name="TxtSeconds" Text="30s" Foreground="#F59E0B" FontWeight="Bold" FontSize="13" HorizontalAlignment="Right" VerticalAlignment="Center"/>
@@ -147,7 +146,7 @@ function Show-PromptWindow ($item) {
                     <ColumnDefinition Width="1*"/>
                 </Grid.ColumnDefinitions>
 
-                <Button x:Name="BtnAllowUnlimited" Grid.Column="0" Content="✓ Allow Free" Background="#059669" Foreground="#F8FAFC" FontWeight="SemiBold" FontSize="11.5" Height="32" Cursor="Hand">
+                <Button x:Name="BtnAllowUnlimited" Grid.Column="0" Content="Allow Free" Background="#059669" Foreground="#F8FAFC" FontWeight="SemiBold" FontSize="11.5" Height="32" Cursor="Hand">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="{TemplateBinding Background}" CornerRadius="6">
@@ -157,7 +156,7 @@ function Show-PromptWindow ($item) {
                     </Button.Template>
                 </Button>
 
-                <Button x:Name="BtnAllowQuota" Grid.Column="2" Content="⚙️ Set Quota" Background="#0284C7" Foreground="#F8FAFC" FontWeight="SemiBold" FontSize="11.5" Height="32" Cursor="Hand">
+                <Button x:Name="BtnAllowQuota" Grid.Column="2" Content="Set Quota" Background="#0284C7" Foreground="#F8FAFC" FontWeight="SemiBold" FontSize="11.5" Height="32" Cursor="Hand">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="{TemplateBinding Background}" CornerRadius="6">
@@ -167,7 +166,7 @@ function Show-PromptWindow ($item) {
                     </Button.Template>
                 </Button>
 
-                <Button x:Name="BtnBlockOutbound" Grid.Column="4" Content="🚫 Block" Background="#E11D48" Foreground="#F8FAFC" FontWeight="SemiBold" FontSize="11.5" Height="32" Cursor="Hand">
+                <Button x:Name="BtnBlockOutbound" Grid.Column="4" Content="Block Outbound" Background="#E11D48" Foreground="#F8FAFC" FontWeight="SemiBold" FontSize="11.5" Height="32" Cursor="Hand">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border Background="{TemplateBinding Background}" CornerRadius="6">
