@@ -268,9 +268,22 @@ $Form.BackColor = $ColorBgDark
 $Form.ForeColor = $ColorTextLight
 $Form.Font = $FontBody
 
-# System Tray Notification Icon
+# System Tray Notification Icon & Form Icon
+$IconPath = Join-Path $AppDir "DataControl.ico"
+$AppCustomIcon = $null
+if (Test-Path $IconPath) {
+    try {
+        $AppCustomIcon = New-Object System.Drawing.Icon($IconPath)
+        $Form.Icon = $AppCustomIcon
+    } catch {}
+}
+
 $NotifyIcon = New-Object System.Windows.Forms.NotifyIcon
-$NotifyIcon.Icon = [System.Drawing.SystemIcons]::Shield
+if ($AppCustomIcon) {
+    $NotifyIcon.Icon = $AppCustomIcon
+} else {
+    $NotifyIcon.Icon = [System.Drawing.SystemIcons]::Shield
+}
 $NotifyIcon.Text = "DataControl - Sentry Active"
 $NotifyIcon.Visible = $true
 
