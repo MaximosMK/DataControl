@@ -18,7 +18,8 @@ DataControl provides **real-time hardware-level network metering**, **persistent
 - **Persistent Quota Tracking**: Continuously aggregates data consumption into daily (`YYYY-MM-DD`), monthly (`YYYY-MM`), and yearly (`YYYY`) records stored in `data_history.json`.
 - **Real-Time Bandwidth Monitor**: Live transfer speed calculation (KB/s and MB/s) updated at configurable intervals.
 - **Automated Cut-Off Enforcement**: Configurable monthly limit (GB) and warning threshold (GB). When the hard quota is met, DataControl can automatically disconnect the network adapter to prevent overage charges.
-- **Windows System Tray & Balloon Notifications**: Provides warning notifications when approaching limits and critical alerts when automated shutoff engages.
+- **Windows System Tray & Background Sentry**: Runs silently in the Windows Notification Area. Double-clicking the tray icon restores the dashboard, while clicking the minimize button sends it back to the tray.
+- **Windows Startup Integration**: Seamlessly configure DataControl to run automatically at user logon with highest Administrator privileges via Windows Task Scheduler (no repeated UAC prompts).
 - **Application Firewall Blocker**: Browse and select any `.exe` application to immediately create dedicated Windows Defender Outbound Firewall rules (`DataControl-Block-*`), cutting off bandwidth-heavy applications with a single click.
 - **Billing Cycle Reset**: Reset the monthly quota counter with a single click and confirmation modal when your mobile carrier or ISP billing cycle renews.
 - **Self-Elevating Architecture**: Automatically detects UAC administrator privileges and prompts for elevation if started from a standard user shell.
@@ -36,28 +37,58 @@ DataControl provides **real-time hardware-level network metering**, **persistent
 
 ---
 
-## 🚀 Quick Start & Launch Instructions
+## 🚀 Running the Program & Background Execution
 
-### Option 1: Standard PowerShell Launch
+### 1. Run Interactively (GUI Window)
 Open PowerShell as Administrator (or let the script self-elevate) and run:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\DataControl.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\DataControl.ps1
 ```
 
-### Option 2: Run via Command Prompt / Shortcut Target
-You can create a desktop shortcut or run directly from `cmd.exe`:
+### 2. Run Silently in the Background (Zero Console Flash)
+Double-click `Start-DataControl.vbs` or run:
 
 ```cmd
-powershell.exe -ExecutionPolicy Bypass -NoProfile -File "D:\web\dataControle\DataControl.ps1"
+wscript.exe .\Start-DataControl.vbs
+```
+
+This launches DataControl with a hidden console window. The app will sit in your Windows System Tray (notification area) with a shield icon.
+
+### 3. Minimize to Background
+Whenever DataControl is open, clicking the **Minimize (`_`)** button automatically hides the window and sends it directly to the system tray so your taskbar stays clutter-free. Double-click the shield tray icon or right-click ➔ **Open DataControl** anytime to bring it back.
+
+---
+
+## ⚡ Enabling Automatic Startup (Run on Windows Boot)
+
+Because DataControl requires Administrator privileges to control network adapters and firewall rules, standard startup shortcuts trigger a UAC confirmation prompt on every login. 
+
+DataControl uses **Windows Task Scheduler with Highest Privileges** to run automatically at logon completely silently without any UAC prompts.
+
+### Method A: Through the Application GUI (Easiest)
+1. Open DataControl.
+2. In **Tab 1 (Dashboard & Live Controls)**, check the box:
+   ☑ **Run at Windows Startup (Runs silently in background with highest Admin privileges)**
+3. Click **Save Quota Settings**.
+*(Alternatively, right-click the tray icon and toggle **Start with Windows**).*
+
+### Method B: Via PowerShell Helper Script
+To register the startup task via command line:
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\Register-StartupTask.ps1
+```
+
+To remove the startup task at any time:
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\Unregister-StartupTask.ps1
 ```
 
 ---
 
 ## 🖥️ User Interface Overview
 
-The application features a modern 650x640 Windows 11 Slate Dark interface organized into three primary workspaces:
+The application features a modern 650x650 Windows 11 Slate Dark interface organized into three primary workspaces:
 
 ### 1. Dashboard & Live Controls
 - **Target Network Adapter**: Select active wireless or wired adapters (`Wi-Fi`, `Ethernet`, etc.).
@@ -65,6 +96,7 @@ The application features a modern 650x640 Windows 11 Slate Dark interface organi
 - **Quota Progress Gauge**: Visual progress bar tracking consumption against your monthly data allowance.
 - **Threshold Controls**: Adjust Monthly Quota (GB) and Warning Threshold (GB) with instant persistence.
 - **Automated Shutoff Toggle**: Enable/disable automated adapter shutoff.
+- **Startup Toggle**: Enable/disable running on Windows logon.
 - **Manual Interface Override**: Immediate "Disable Wi-Fi" and "Enable Wi-Fi" buttons.
 
 ### 2. Usage History & Analytics
@@ -136,7 +168,7 @@ All rules generated by the tool are safely prefixed with `DataControl-Block-` so
 
 | Issue | Cause | Solution |
 |---|---|---|
-| **Prompted for Administrator permission** | Network adapter state control and firewall modification require elevated tokens. | Accept the UAC elevation prompt when starting the script. |
+| **Prompted for Administrator permission** | Network adapter state control and firewall modification require elevated tokens. | Accept the UAC elevation prompt when starting the script or enable the Task Scheduler startup task. |
 | **No adapter statistics shown** | Selected adapter is disconnected or misnamed in `config.json`. | Select your active adapter from the dropdown on the Dashboard tab. |
 | **Adapter disabled unexpectedly** | Monthly quota reached and `auto_disconnect` was set to `true`. | Click "Enable Wi-Fi" on the Dashboard or increase your Monthly Quota in settings. |
 | **Firewall rule creation fails** | Executable path contains invalid characters or does not exist. | Ensure the target application path is a valid `.exe` on a local drive. |

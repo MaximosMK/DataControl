@@ -5,6 +5,9 @@
     Autonomous network metering, persistent usage tracking, automated shutoff enforcement,
     and outbound application firewall blocker for Windows 10/11.
 #>
+param (
+    [switch]$StartMinimized
+)
 
 # ==============================================================================
 # Step 2: Privilege Elevation Architecture
@@ -17,6 +20,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
         $scriptFile = (Get-Item $MyInvocation.MyCommand.Definition).FullName
     }
     $argsList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$scriptFile`"")
+    if ($StartMinimized) { $argsList += "-StartMinimized" }
     Start-Process -FilePath "powershell.exe" -ArgumentList $argsList -Verb RunAs
     exit
 }
@@ -33,6 +37,7 @@ $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $AppDir) { $AppDir = (Get-Location).Path }
 $ConfigFile = Join-Path $AppDir "config.json"
 $HistoryFile = Join-Path $AppDir "data_history.json"
+$TaskName = "DataControl_Monitor"
 
 # ==============================================================================
 # Helper Functions: Config & History Management
@@ -66,7 +71,6 @@ function Load-DataHistory {
     if (Test-Path $HistoryFile) {
         try {
             $raw = Get-Content -Path $HistoryFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            # Ensure properties exist
             if (-not $raw.last_raw_total_bytes) { $raw | Add-Member -MemberType NoteProperty -Name "last_raw_total_bytes" -Value 0 -Force }
             if (-not $raw.daily) { $raw | Add-Member -MemberType NoteProperty -Name "daily" -Value (New-Object PSCustomObject) -Force }
             if (-not $raw.monthly) { $raw | Add-Member -MemberType NoteProperty -Name "monthly" -Value (New-Object PSCustomObject) -Force }
@@ -99,6 +103,51 @@ function Format-Bytes ([double]$bytes) {
         return "$([math]::Round($bytes / 1KB, 2)) KB"
     } else {
         return "$([math]::Round($bytes, 0)) B"
+    }
+}
+
+# Scheduled Task Management
+function Test-StartupTaskEnabled {
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    return ($null -ne $task)
+}
+
+function Set-StartupTaskEnabled ([bool]$enable) {
+    if ($enable) {
+        $scriptPath = Join-Path $AppDir "DataControl.ps1"
+        $action = New-ScheduledTaskAction `
+            -Execute "powershell.exe" `
+            -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -StartMinimized"
+        $trigger = New-ScheduledTaskTrigger -AtLogOn
+        $principalTask = New-ScheduledTaskPrincipal `
+            -UserId $env:USERNAME `
+            -LogonType Interactive `
+            -RunLevel Highest
+        $settings = New-ScheduledTaskSettingsSet `
+            -AllowStartIfOnBatteries `
+            -DontStopIfGoingOnBatteries `
+            -ExecutionTimeLimit 0 `
+            -Priority 4
+        try {
+            Register-ScheduledTask `
+                -TaskName $TaskName `
+                -Action $action `
+                -Trigger $trigger `
+                -Principal $principalTask `
+                -Settings $settings `
+                -Description "DataControl Autonomous Network Metering & Quota Enforcement Sentry" `
+                -Force | Out-Null
+            return $true
+        } catch {
+            return $false
+        }
+    } else {
+        try {
+            Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
+            return $true
+        } catch {
+            return $false
+        }
     }
 }
 
@@ -139,19 +188,15 @@ function Update-NetworkMetrics {
 
         $delta = 0.0
         if ($previousRaw -le 0) {
-            # First launch baseline initialization
             $delta = 0.0
         } elseif ($currentRaw -lt $previousRaw) {
-            # Interface reset, reboot, or counter wrap-around
             $delta = $currentRaw
         } else {
             $delta = $currentRaw - $previousRaw
         }
 
-        # Update last raw total bytes
         $script:DataHistory.last_raw_total_bytes = $currentRaw
 
-        # Calculate transfer rate
         if ($elapsedSec -gt 0) {
             $script:CurrentThroughputBytesPerSec = $delta / $elapsedSec
         } else {
@@ -164,38 +209,33 @@ function Update-NetworkMetrics {
             $monthKey = $dateNow.ToString("yyyy-MM")
             $yearKey = $dateNow.ToString("yyyy")
 
-            # Update daily
             $prevDay = 0.0
             if ($script:DataHistory.daily.PSObject.Properties[$dayKey]) {
                 $prevDay = [double]$script:DataHistory.daily.$dayKey
             }
             $script:DataHistory.daily | Add-Member -MemberType NoteProperty -Name $dayKey -Value ($prevDay + $delta) -Force
 
-            # Update monthly
             $prevMonth = 0.0
             if ($script:DataHistory.monthly.PSObject.Properties[$monthKey]) {
                 $prevMonth = [double]$script:DataHistory.monthly.$monthKey
             }
             $script:DataHistory.monthly | Add-Member -MemberType NoteProperty -Name $monthKey -Value ($prevMonth + $delta) -Force
 
-            # Update yearly
             $prevYear = 0.0
             if ($script:DataHistory.yearly.PSObject.Properties[$yearKey]) {
                 $prevYear = [double]$script:DataHistory.yearly.$yearKey
             }
             $script:DataHistory.yearly | Add-Member -MemberType NoteProperty -Name $yearKey -Value ($prevYear + $delta) -Force
 
-            # Flush to disk
             Save-DataHistory $script:DataHistory
         }
     } catch {
-        # Keep engine resilient to transient errors
+        # Keep engine resilient
     }
 }
 
 # ==============================================================================
 # Step 4: Graphical User Interface Construction
-# Modern Windows 11 Slate Dark Theme Styling
 # ==============================================================================
 
 # Palette Definition
@@ -210,7 +250,6 @@ $ColorSuccess    = [System.Drawing.ColorTranslator]::FromHtml("#22C55E") # Emera
 $ColorWarning    = [System.Drawing.ColorTranslator]::FromHtml("#F59E0B") # Amber 500
 $ColorDanger     = [System.Drawing.ColorTranslator]::FromHtml("#EF4444") # Red 500
 $ColorInputBg    = [System.Drawing.ColorTranslator]::FromHtml("#0F172A") # Input dark
-$ColorButtonHover= [System.Drawing.ColorTranslator]::FromHtml("#2563EB") # Blue hover
 
 $FontHeader = New-Object System.Drawing.Font("Segoe UI", 13, [System.Drawing.FontStyle]::Bold)
 $FontSub    = New-Object System.Drawing.Font("Segoe UI", 10.5, [System.Drawing.FontStyle]::Bold)
@@ -221,7 +260,7 @@ $FontSmall  = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.Fo
 # Main Form
 $Form = New-Object System.Windows.Forms.Form
 $Form.Text = "DataControl - Windows 11 Data Control System"
-$Form.ClientSize = New-Object System.Drawing.Size(650, 640)
+$Form.ClientSize = New-Object System.Drawing.Size(650, 650)
 $Form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
 $Form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::FixedSingle
 $Form.MaximizeBox = $false
@@ -232,28 +271,67 @@ $Form.Font = $FontBody
 # System Tray Notification Icon
 $NotifyIcon = New-Object System.Windows.Forms.NotifyIcon
 $NotifyIcon.Icon = [System.Drawing.SystemIcons]::Shield
-$NotifyIcon.Text = "DataControl - Active"
+$NotifyIcon.Text = "DataControl - Sentry Active"
 $NotifyIcon.Visible = $true
 
 # Context Menu for Tray
 $TrayMenu = New-Object System.Windows.Forms.ContextMenuStrip
+
 $TrayMenuItemShow = $TrayMenu.Items.Add("Open DataControl")
+$TrayMenuItemShow.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
 $TrayMenuItemShow.Add_Click({
-    $Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
     $Form.Show()
+    $Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+    $Form.ShowInTaskbar = $true
     $Form.Activate()
 })
-$TrayMenu.Items.Add("-")
-$TrayMenuItemExit = $TrayMenu.Items.Add("Exit")
+
+$TrayMenu.Items.Add("-") | Out-Null
+
+$TrayMenuItemStartup = $TrayMenu.Items.Add("Start with Windows (Background)")
+$TrayMenuItemStartup.CheckOnClick = $true
+$TrayMenuItemStartup.Checked = Test-StartupTaskEnabled
+$TrayMenuItemStartup.Add_Click({
+    $newState = $TrayMenuItemStartup.Checked
+    Set-StartupTaskEnabled $newState | Out-Null
+    $ChkStartWithWindows.Checked = $newState
+})
+
+$TrayMenuItemToggleWifi = $TrayMenu.Items.Add("Toggle Wi-Fi Interface")
+$TrayMenuItemToggleWifi.Add_Click({
+    $target = [string]$script:AppConfig.target_adapter
+    try {
+        $cur = Get-NetAdapter -Name $target -ErrorAction SilentlyContinue
+        if ($cur.Status -eq "Up") {
+            Disable-NetAdapter -Name $target -Confirm:$false -ErrorAction Stop
+        } else {
+            Enable-NetAdapter -Name $target -Confirm:$false -ErrorAction Stop
+        }
+        Refresh-AdapterStatusLabel
+    } catch {}
+})
+
+$TrayMenu.Items.Add("-") | Out-Null
+
+$TrayMenuItemExit = $TrayMenu.Items.Add("Exit DataControl")
 $TrayMenuItemExit.Add_Click({
     $Form.Close()
 })
 $NotifyIcon.ContextMenuStrip = $TrayMenu
 
 $NotifyIcon.Add_DoubleClick({
-    $Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
     $Form.Show()
+    $Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
+    $Form.ShowInTaskbar = $true
     $Form.Activate()
+})
+
+# Minimize to Tray handler
+$Form.Add_Resize({
+    if ($Form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
+        $Form.Hide()
+        $Form.ShowInTaskbar = $false
+    }
 })
 
 # Top Header Banner
@@ -290,7 +368,7 @@ $Form.Controls.Add($HeaderPanel)
 # Tab Control
 $TabControl = New-Object System.Windows.Forms.TabControl
 $TabControl.Location = New-Object System.Drawing.Point(12, 66)
-$TabControl.Size = New-Object System.Drawing.Size(626, 560)
+$TabControl.Size = New-Object System.Drawing.Size(626, 570)
 $TabControl.Font = $FontBody
 
 # Setup Tab Pages
@@ -315,8 +393,8 @@ $Form.Controls.Add($TabControl)
 
 # Card 1: Live Status & Interface Selection
 $CardStatus = New-Object System.Windows.Forms.Panel
-$CardStatus.Location = New-Object System.Drawing.Point(12, 12)
-$CardStatus.Size = New-Object System.Drawing.Size(594, 86)
+$CardStatus.Location = New-Object System.Drawing.Point(12, 10)
+$CardStatus.Size = New-Object System.Drawing.Size(594, 84)
 $CardStatus.BackColor = $ColorPanelBg
 $CardStatus.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
 
@@ -324,12 +402,12 @@ $LblAdapter = New-Object System.Windows.Forms.Label
 $LblAdapter.Text = "Target Network Adapter:"
 $LblAdapter.Font = $FontSub
 $LblAdapter.ForeColor = $ColorTextLight
-$LblAdapter.Location = New-Object System.Drawing.Point(12, 12)
+$LblAdapter.Location = New-Object System.Drawing.Point(12, 10)
 $LblAdapter.AutoSize = $true
 
 $ComboAdapters = New-Object System.Windows.Forms.ComboBox
 $ComboAdapters.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
-$ComboAdapters.Location = New-Object System.Drawing.Point(14, 38)
+$ComboAdapters.Location = New-Object System.Drawing.Point(14, 36)
 $ComboAdapters.Size = New-Object System.Drawing.Size(220, 26)
 $ComboAdapters.BackColor = $ColorInputBg
 $ComboAdapters.ForeColor = $ColorTextLight
@@ -339,28 +417,28 @@ $LblStateTitle = New-Object System.Windows.Forms.Label
 $LblStateTitle.Text = "Link State:"
 $LblStateTitle.Font = $FontSub
 $LblStateTitle.ForeColor = $ColorTextLight
-$LblStateTitle.Location = New-Object System.Drawing.Point(260, 12)
+$LblStateTitle.Location = New-Object System.Drawing.Point(260, 10)
 $LblStateTitle.AutoSize = $true
 
 $LblStateValue = New-Object System.Windows.Forms.Label
 $LblStateValue.Text = "Detecting..."
 $LblStateValue.Font = $FontSub
 $LblStateValue.ForeColor = $ColorSuccess
-$LblStateValue.Location = New-Object System.Drawing.Point(260, 39)
+$LblStateValue.Location = New-Object System.Drawing.Point(260, 37)
 $LblStateValue.AutoSize = $true
 
 $LblLiveSpeedTitle = New-Object System.Windows.Forms.Label
 $LblLiveSpeedTitle.Text = "Transfer Rate:"
 $LblLiveSpeedTitle.Font = $FontSub
 $LblLiveSpeedTitle.ForeColor = $ColorTextLight
-$LblLiveSpeedTitle.Location = New-Object System.Drawing.Point(400, 12)
+$LblLiveSpeedTitle.Location = New-Object System.Drawing.Point(400, 10)
 $LblLiveSpeedTitle.AutoSize = $true
 
 $LblLiveSpeedValue = New-Object System.Windows.Forms.Label
 $LblLiveSpeedValue.Text = "0.00 KB/s"
 $LblLiveSpeedValue.Font = $FontMetric
 $LblLiveSpeedValue.ForeColor = $ColorAccent
-$LblLiveSpeedValue.Location = New-Object System.Drawing.Point(398, 35)
+$LblLiveSpeedValue.Location = New-Object System.Drawing.Point(398, 33)
 $LblLiveSpeedValue.AutoSize = $true
 
 $CardStatus.Controls.AddRange(@(
@@ -370,8 +448,8 @@ $Tab1.Controls.Add($CardStatus)
 
 # Card 2: Monthly Quota Progress
 $CardQuota = New-Object System.Windows.Forms.Panel
-$CardQuota.Location = New-Object System.Drawing.Point(12, 108)
-$CardQuota.Size = New-Object System.Drawing.Size(594, 110)
+$CardQuota.Location = New-Object System.Drawing.Point(12, 102)
+$CardQuota.Size = New-Object System.Drawing.Size(594, 106)
 $CardQuota.BackColor = $ColorPanelBg
 $CardQuota.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
 
@@ -379,18 +457,18 @@ $LblQuotaHeader = New-Object System.Windows.Forms.Label
 $LblQuotaHeader.Text = "Monthly Data Quota Consumption"
 $LblQuotaHeader.Font = $FontSub
 $LblQuotaHeader.ForeColor = $ColorTextLight
-$LblQuotaHeader.Location = New-Object System.Drawing.Point(12, 12)
+$LblQuotaHeader.Location = New-Object System.Drawing.Point(12, 10)
 $LblQuotaHeader.AutoSize = $true
 
 $LblQuotaPercentage = New-Object System.Windows.Forms.Label
 $LblQuotaPercentage.Text = "0.0%"
 $LblQuotaPercentage.Font = $FontMetric
 $LblQuotaPercentage.ForeColor = $ColorAccent
-$LblQuotaPercentage.Location = New-Object System.Drawing.Point(510, 8)
+$LblQuotaPercentage.Location = New-Object System.Drawing.Point(510, 6)
 $LblQuotaPercentage.AutoSize = $true
 
 $ProgressQuota = New-Object System.Windows.Forms.ProgressBar
-$ProgressQuota.Location = New-Object System.Drawing.Point(14, 44)
+$ProgressQuota.Location = New-Object System.Drawing.Point(14, 40)
 $ProgressQuota.Size = New-Object System.Drawing.Size(564, 22)
 $ProgressQuota.Minimum = 0
 $ProgressQuota.Maximum = 1000
@@ -400,7 +478,7 @@ $LblQuotaDetail = New-Object System.Windows.Forms.Label
 $LblQuotaDetail.Text = "Used: 0.00 GB / Total: 16.00 GB (Remaining: 16.00 GB)"
 $LblQuotaDetail.Font = $FontBody
 $LblQuotaDetail.ForeColor = $ColorTextMuted
-$LblQuotaDetail.Location = New-Object System.Drawing.Point(14, 76)
+$LblQuotaDetail.Location = New-Object System.Drawing.Point(14, 72)
 $LblQuotaDetail.AutoSize = $true
 
 $CardQuota.Controls.AddRange(@($LblQuotaHeader, $LblQuotaPercentage, $ProgressQuota, $LblQuotaDetail))
@@ -408,27 +486,27 @@ $Tab1.Controls.Add($CardQuota)
 
 # Card 3: Threshold Configuration & Enforcement Settings
 $CardSettings = New-Object System.Windows.Forms.Panel
-$CardSettings.Location = New-Object System.Drawing.Point(12, 228)
-$CardSettings.Size = New-Object System.Drawing.Size(594, 172)
+$CardSettings.Location = New-Object System.Drawing.Point(12, 216)
+$CardSettings.Size = New-Object System.Drawing.Size(594, 192)
 $CardSettings.BackColor = $ColorPanelBg
 $CardSettings.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
 
 $LblSettingsHeader = New-Object System.Windows.Forms.Label
-$LblSettingsHeader.Text = "Enforcement & Threshold Controls"
+$LblSettingsHeader.Text = "Enforcement & Automation Controls"
 $LblSettingsHeader.Font = $FontSub
 $LblSettingsHeader.ForeColor = $ColorTextLight
-$LblSettingsHeader.Location = New-Object System.Drawing.Point(12, 12)
+$LblSettingsHeader.Location = New-Object System.Drawing.Point(12, 10)
 $LblSettingsHeader.AutoSize = $true
 
 $LblLimitInput = New-Object System.Windows.Forms.Label
 $LblLimitInput.Text = "Monthly Quota Limit (GB):"
 $LblLimitInput.Font = $FontBody
 $LblLimitInput.ForeColor = $ColorTextMuted
-$LblLimitInput.Location = New-Object System.Drawing.Point(14, 44)
+$LblLimitInput.Location = New-Object System.Drawing.Point(14, 38)
 $LblLimitInput.AutoSize = $true
 
 $NumLimitInput = New-Object System.Windows.Forms.NumericUpDown
-$NumLimitInput.Location = New-Object System.Drawing.Point(16, 68)
+$NumLimitInput.Location = New-Object System.Drawing.Point(16, 60)
 $NumLimitInput.Size = New-Object System.Drawing.Size(120, 24)
 $NumLimitInput.DecimalPlaces = 1
 $NumLimitInput.Minimum = 0.5
@@ -442,11 +520,11 @@ $LblWarnInput = New-Object System.Windows.Forms.Label
 $LblWarnInput.Text = "Warning Threshold (GB):"
 $LblWarnInput.Font = $FontBody
 $LblWarnInput.ForeColor = $ColorTextMuted
-$LblWarnInput.Location = New-Object System.Drawing.Point(170, 44)
+$LblWarnInput.Location = New-Object System.Drawing.Point(170, 38)
 $LblWarnInput.AutoSize = $true
 
 $NumWarnInput = New-Object System.Windows.Forms.NumericUpDown
-$NumWarnInput.Location = New-Object System.Drawing.Point(172, 68)
+$NumWarnInput.Location = New-Object System.Drawing.Point(172, 60)
 $NumWarnInput.Size = New-Object System.Drawing.Size(120, 24)
 $NumWarnInput.DecimalPlaces = 1
 $NumWarnInput.Minimum = 0.5
@@ -460,13 +538,21 @@ $ChkAutoDisconnect = New-Object System.Windows.Forms.CheckBox
 $ChkAutoDisconnect.Text = "Automated Shutoff: Disable Wi-Fi adapter immediately when quota is reached"
 $ChkAutoDisconnect.Font = $FontBody
 $ChkAutoDisconnect.ForeColor = $ColorTextLight
-$ChkAutoDisconnect.Location = New-Object System.Drawing.Point(16, 104)
-$ChkAutoDisconnect.Size = New-Object System.Drawing.Size(560, 24)
+$ChkAutoDisconnect.Location = New-Object System.Drawing.Point(16, 94)
+$ChkAutoDisconnect.Size = New-Object System.Drawing.Size(560, 22)
 $ChkAutoDisconnect.Checked = [bool]$script:AppConfig.auto_disconnect
+
+$ChkStartWithWindows = New-Object System.Windows.Forms.CheckBox
+$ChkStartWithWindows.Text = "Run at Windows Startup (Runs silently in background with highest Admin privileges)"
+$ChkStartWithWindows.Font = $FontBody
+$ChkStartWithWindows.ForeColor = $ColorTextLight
+$ChkStartWithWindows.Location = New-Object System.Drawing.Point(16, 120)
+$ChkStartWithWindows.Size = New-Object System.Drawing.Size(560, 22)
+$ChkStartWithWindows.Checked = Test-StartupTaskEnabled
 
 $BtnSaveSettings = New-Object System.Windows.Forms.Button
 $BtnSaveSettings.Text = "Save Quota Settings"
-$BtnSaveSettings.Location = New-Object System.Drawing.Point(16, 134)
+$BtnSaveSettings.Location = New-Object System.Drawing.Point(16, 150)
 $BtnSaveSettings.Size = New-Object System.Drawing.Size(160, 28)
 $BtnSaveSettings.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $BtnSaveSettings.FlatAppearance.BorderSize = 0
@@ -478,18 +564,18 @@ $LblSaveStatus = New-Object System.Windows.Forms.Label
 $LblSaveStatus.Text = ""
 $LblSaveStatus.Font = $FontSmall
 $LblSaveStatus.ForeColor = $ColorSuccess
-$LblSaveStatus.Location = New-Object System.Drawing.Point(190, 140)
+$LblSaveStatus.Location = New-Object System.Drawing.Point(190, 156)
 $LblSaveStatus.AutoSize = $true
 
 $CardSettings.Controls.AddRange(@(
     $LblSettingsHeader, $LblLimitInput, $NumLimitInput, $LblWarnInput, $NumWarnInput,
-    $ChkAutoDisconnect, $BtnSaveSettings, $LblSaveStatus
+    $ChkAutoDisconnect, $ChkStartWithWindows, $BtnSaveSettings, $LblSaveStatus
 ))
 $Tab1.Controls.Add($CardSettings)
 
 # Card 4: Manual Hardware Sentry Controls
 $CardManual = New-Object System.Windows.Forms.Panel
-$CardManual.Location = New-Object System.Drawing.Point(12, 410)
+$CardManual.Location = New-Object System.Drawing.Point(12, 416)
 $CardManual.Size = New-Object System.Drawing.Size(594, 94)
 $CardManual.BackColor = $ColorPanelBg
 $CardManual.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
@@ -498,12 +584,12 @@ $LblManualHeader = New-Object System.Windows.Forms.Label
 $LblManualHeader.Text = "Manual Interface Override"
 $LblManualHeader.Font = $FontSub
 $LblManualHeader.ForeColor = $ColorTextLight
-$LblManualHeader.Location = New-Object System.Drawing.Point(12, 12)
+$LblManualHeader.Location = New-Object System.Drawing.Point(12, 10)
 $LblManualHeader.AutoSize = $true
 
 $BtnDisableWifi = New-Object System.Windows.Forms.Button
 $BtnDisableWifi.Text = "Disable Wi-Fi"
-$BtnDisableWifi.Location = New-Object System.Drawing.Point(16, 42)
+$BtnDisableWifi.Location = New-Object System.Drawing.Point(16, 40)
 $BtnDisableWifi.Size = New-Object System.Drawing.Size(130, 36)
 $BtnDisableWifi.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $BtnDisableWifi.FlatAppearance.BorderSize = 0
@@ -514,7 +600,7 @@ $BtnDisableWifi.Cursor = [System.Windows.Forms.Cursors]::Hand
 
 $BtnEnableWifi = New-Object System.Windows.Forms.Button
 $BtnEnableWifi.Text = "Enable Wi-Fi"
-$BtnEnableWifi.Location = New-Object System.Drawing.Point(156, 42)
+$BtnEnableWifi.Location = New-Object System.Drawing.Point(156, 40)
 $BtnEnableWifi.Size = New-Object System.Drawing.Size(130, 36)
 $BtnEnableWifi.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $BtnEnableWifi.FlatAppearance.BorderSize = 0
@@ -527,7 +613,7 @@ $LblManualStatus = New-Object System.Windows.Forms.Label
 $LblManualStatus.Text = "Target adapter ready for controls."
 $LblManualStatus.Font = $FontSmall
 $LblManualStatus.ForeColor = $ColorTextMuted
-$LblManualStatus.Location = New-Object System.Drawing.Point(300, 52)
+$LblManualStatus.Location = New-Object System.Drawing.Point(300, 50)
 $LblManualStatus.AutoSize = $true
 
 $CardManual.Controls.AddRange(@(
@@ -850,7 +936,6 @@ function Refresh-AdapterList {
             [void]$ComboAdapters.Items.Add($a.Name)
         }
 
-        # Select configured or first
         if ($ComboAdapters.Items.Contains($script:AppConfig.target_adapter)) {
             $ComboAdapters.SelectedItem = $script:AppConfig.target_adapter
         } elseif ($ComboAdapters.Items.Count -gt 0) {
@@ -923,7 +1008,6 @@ function Refresh-UsageDisplay {
     $limitGB = [double]$script:AppConfig.monthly_limit_gb
     $warnGB  = [double]$script:AppConfig.warning_threshold_gb
 
-    # Speed Readout
     $rateBps = $script:CurrentThroughputBytesPerSec
     if ($rateBps -ge 1MB) {
         $rateMB = [math]::Round($rateBps / 1MB, 2)
@@ -933,21 +1017,18 @@ function Refresh-UsageDisplay {
         $LblLiveSpeedValue.Text = "$rateKB KB/s"
     }
 
-    # Quota Progress Bar & Percentage
     $percent = 0.0
     if ($limitGB -gt 0) {
         $percent = [math]::Round(($monthGB / $limitGB) * 100.0, 1)
     }
     $LblQuotaPercentage.Text = "$percent%"
 
-    # Progress bar scale (0 - 1000)
     $progVal = [int]([math]::Min(100.0, [math]::Max(0.0, $percent)) * 10)
     $ProgressQuota.Value = $progVal
 
     $remainingGB = [math]::Max(0.0, [math]::Round($limitGB - $monthGB, 2))
     $LblQuotaDetail.Text = "Used: $([math]::Round($monthGB, 2)) GB / Total: $([math]::Round($limitGB, 2)) GB (Remaining: $remainingGB GB)"
 
-    # Status color change based on threshold
     if ($monthGB -ge $limitGB) {
         $LblQuotaPercentage.ForeColor = $ColorDanger
     } elseif ($monthGB -ge $warnGB) {
@@ -956,12 +1037,10 @@ function Refresh-UsageDisplay {
         $LblQuotaPercentage.ForeColor = $ColorAccent
     }
 
-    # Analytics Tab
     $LblTodayValue.Text = Format-Bytes $dayBytes
     $LblMonthValue.Text = Format-Bytes $monthBytes
     $LblYearValue.Text = Format-Bytes $yearBytes
 
-    # Tray Tooltip
     $trayStr = "DataControl: $([math]::Round($monthGB, 2)) GB / $([math]::Round($limitGB, 2)) GB"
     if ($trayStr.Length -gt 63) { $trayStr = $trayStr.Substring(0, 63) }
     $NotifyIcon.Text = $trayStr
@@ -1043,7 +1122,6 @@ function Check-EnforcementRules {
     if ($monthGB -ge $limitGB) {
         if (-not $script:LimitNotified) {
             if ($script:AppConfig.auto_disconnect) {
-                # Execute automated network cutoff
                 try {
                     Disable-NetAdapter -Name $targetAdapter -Confirm:$false -ErrorAction SilentlyContinue
                     $LblManualStatus.Text = "Automated shutoff executed! Quota exceeded."
@@ -1112,13 +1190,17 @@ $BtnSaveSettings.Add_Click({
     $selected = [string]$ComboAdapters.SelectedItem
     if ($selected) { $script:AppConfig.target_adapter = $selected }
 
+    # Sync Startup Task status with checkbox
+    $isTaskWanted = [bool]$ChkStartWithWindows.Checked
+    Set-StartupTaskEnabled $isTaskWanted | Out-Null
+    $TrayMenuItemStartup.Checked = $isTaskWanted
+
     Save-AppConfig $script:AppConfig
     Refresh-UsageDisplay
 
     $LblSaveStatus.Text = "Settings saved successfully!"
     $LblSaveStatus.ForeColor = $ColorSuccess
     
-    # Clear confirmation after 2.5 seconds
     $tempTimer = New-Object System.Windows.Forms.Timer
     $tempTimer.Interval = 2500
     $tempTimer.Add_Tick({
@@ -1190,7 +1272,7 @@ $BtnResetMonth.Add_Click({
     }
 })
 
-# Tab 2 Selected Event to populate history table
+# Tab Selected Event
 $TabControl.Add_SelectedIndexChanged({
     if ($TabControl.SelectedTab -eq $Tab2) {
         Refresh-HistoryTable
@@ -1230,7 +1312,6 @@ $BtnBlockApp.Add_Click({
     $ruleName = "DataControl-Block-$cleanName"
 
     try {
-        # Check if rule already exists and remove previous
         $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
         if ($existing) {
             Remove-NetFirewallRule -DisplayName $ruleName -Confirm:$false -ErrorAction SilentlyContinue
@@ -1307,6 +1388,22 @@ $Form.Add_Load({
     Refresh-FirewallRulesList
     $PollTimer.Start()
 })
+
+# Handle Start Minimized (Background Boot)
+if ($StartMinimized) {
+    $Form.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
+    $Form.ShowInTaskbar = $false
+    $Form.Add_Shown({
+        $Form.Hide()
+        $Form.ShowInTaskbar = $false
+        $NotifyIcon.ShowBalloonTip(
+            3500,
+            "DataControl Sentry Active",
+            "DataControl is actively monitoring network quotas in the background. Double-click to open dashboard.",
+            [System.Windows.Forms.ToolTipIcon]::Info
+        )
+    })
+}
 
 # Launch Application Form
 [System.Windows.Forms.Application]::Run($Form)
