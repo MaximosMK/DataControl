@@ -1,7 +1,10 @@
 {
   "target_adapter": "Wi-Fi",
+  "daily_limit_gb": 2.0,
+  "daily_warning_gb": 1.7,
   "monthly_limit_gb": 16.0,
   "warning_threshold_gb": 14.0,
   "auto_disconnect": true,
+  "auto_disconnect_daily": true,
   "poll_frequency_seconds": 3
 }

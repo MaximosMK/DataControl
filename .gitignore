@@ -1,3 +1,11 @@
+# Personal & Sensitive Data (Do not commit to public repositories)
+config.json
+data_history.json
+data_history*.json
+app_history.json
+user_data/
+*.dat
+
 # Windows & System Files
 Thumbs.db
 Thumbs.db:encryptable
