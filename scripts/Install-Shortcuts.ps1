@@ -6,8 +6,10 @@
 #>
 
 $wsh = New-Object -ComObject WScript.Shell
-$AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $AppDir) { $AppDir = (Get-Location).Path }
+$AppDir = Split-Path -Parent $PSScriptRoot
+if (-not $AppDir -or -not (Test-Path (Join-Path $AppDir "DataControl.exe"))) {
+    $AppDir = (Get-Location).Path
+}
 $exePath = Join-Path $AppDir "DataControl.exe"
 
 # 1. Desktop Shortcut

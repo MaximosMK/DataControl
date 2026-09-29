@@ -85,12 +85,48 @@ DataControl uses **Windows Task Scheduler with Highest Privileges** to run autom
 ### Method B: Via PowerShell Helper Script
 To register the startup task via command line:
 ```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\Register-StartupTask.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\Register-StartupTask.ps1
 ```
 
 To remove the startup task at any time:
 ```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\Unregister-StartupTask.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\Unregister-StartupTask.ps1
+```
+
+---
+
+## 📁 Project Architecture & File Organization
+
+The codebase is organized into modular layers to ensure high maintainability, clear separation of concerns, and clean navigation:
+
+```
+dataControle/
+├── assets/
+│   └── DataControl.ico             # High-resolution sentry shield icon
+├── scripts/
+│   ├── Install-Shortcuts.ps1        # Desktop & Start Menu shortcut installer
+│   ├── Uninstall-Shortcuts.ps1      # Shortcut uninstaller
+│   ├── Register-StartupTask.ps1     # Elevated silent startup task registrar
+│   └── Unregister-StartupTask.ps1   # Startup task remover
+├── src/
+│   ├── core/
+│   │   ├── NativeMethods.ps1        # Win32 DWM dark title bar & Process IO API
+│   │   ├── NetworkEngine.ps1        # Interface delta calculation & throughput metering
+│   │   ├── ProcessTracker.ps1       # Per-process network I/O & socket tracking
+│   │   └── Enforcement.ps1          # Daily/Monthly warning & auto-cutoff rules
+│   ├── firewall/
+│   │   └── FirewallManager.ps1      # Windows Defender Firewall block/unblock cmdlets
+│   ├── storage/
+│   │   └── ConfigManager.ps1        # JSON config & data/app history persistence
+│   └── ui/
+│       ├── MainWindow.xaml          # Fluent 2 Dark Mode UI markup (pure XAML)
+│       └── UIController.ps1         # View routing, toast alerts, list binding
+├── .gitignore                       # Git exclusions (privacy protection)
+├── config.example.json              # Public template configuration
+├── DataControl.exe                  # Compiled native launcher binary
+├── DataControl.ps1                  # Main application bootstrapper
+├── Launcher.cs                      # C# launcher source code
+└── README.md                        # Documentation & architecture guide
 ```
 
 ---
