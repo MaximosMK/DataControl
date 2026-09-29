@@ -126,7 +126,7 @@ foreach ($name in $elementNames) {
 # ==============================================================================
 $NotifyIcon = New-Object System.Windows.Forms.NotifyIcon
 if (Test-Path $script:IconPath) {
-    try { $NotifyIcon.Icon = New-Object System.Drawing.Icon($script:IconPath) } catch {}
+    try { $NotifyIcon.Icon = New-Object System.Drawing.Icon($script:IconPath) } catch { $null = $_ }
 }
 if (-not $NotifyIcon.Icon) {
     $NotifyIcon.Icon = [System.Drawing.SystemIcons]::Shield
@@ -170,7 +170,8 @@ $RestoreAction = {
 }
 $NotifyIcon.Add_DoubleClick($RestoreAction)
 $NotifyIcon.Add_Click({
-    param($s, $e)
+    param($evtSender, $e)
+    $null = $evtSender
     if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
         & $RestoreAction
     }
@@ -250,7 +251,7 @@ $script:UI.BtnBlockLiveApp.Add_Click({
     }
 
     try {
-        $ruleName = Block-ApplicationPath -appPath $item.Path -description "Blocked by DataControl Live Sentry"
+        $null = Block-ApplicationPath -appPath $item.Path -description "Blocked by DataControl Live Sentry"
         $script:UI.TxtLiveBlockStatus.Text = "Blocked in Firewall: $($item.Name)"
         Show-Toast "Application '$($item.Name)' blocked in Windows Defender Firewall!" "#10B981"
     } catch {
@@ -267,7 +268,7 @@ $script:UI.BtnBlockHistoryApp.Add_Click({
     }
 
     try {
-        $ruleName = Block-ApplicationPath -appPath $item.Path -description "Blocked by DataControl App History"
+        $null = Block-ApplicationPath -appPath $item.Path -description "Blocked by DataControl App History"
         $script:UI.TxtHistoryBlockStatus.Text = "Blocked: $($item.Name)"
         Show-Toast "Application '$($item.Name)' blocked in Firewall!" "#10B981"
     } catch {
@@ -430,7 +431,7 @@ if ($script:UI.BtnDeleteAppRule) {
 # Analytics Monthly Reset
 $script:UI.BtnResetCurrentMonth.Add_Click({
     $curMonthName = (Get-Date).ToString("MMMM yyyy")
-    $res = [System.Windows.MessageBox]::Show("Reset monthly consumption metrics to 0 GB for $curMonthName?`n`nRecommended when your billing cycle renews.", "Confirm Billing Reset", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Question)
+    $res = [System.Windows.MessageBox]::Show("Reset monthly consumption metrics to 0 GB for $($curMonthName)?`n`nRecommended when your billing cycle renews.", "Confirm Billing Reset", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Question)
     if ($res -eq [System.Windows.MessageBoxResult]::Yes) {
         $monthKey = (Get-Date).ToString("yyyy-MM")
         $script:DataHistory.monthly | Add-Member -MemberType NoteProperty -Name $monthKey -Value 0.0 -Force
@@ -542,7 +543,8 @@ $script:UI.BtnSidebarExit.Add_Click({
 
 # Window Close [X] -> Hide to Tray
 $Window.Add_Closing({
-    param($s, $e)
+    param($evtSender, $e)
+    $null = $evtSender
 
     if (-not $script:AllowRealExit) {
         $e.Cancel = $true

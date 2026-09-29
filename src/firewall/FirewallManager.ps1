@@ -37,7 +37,7 @@ function Unblock-ApplicationRule ([string]$ruleName) {
     foreach ($v in $variants) {
         try {
             Remove-NetFirewallRule -DisplayName $v -Confirm:$false -ErrorAction SilentlyContinue
-        } catch {}
+        } catch { $null = $_ }
     }
 }
 
@@ -50,7 +50,7 @@ function Get-DataControlFirewallRules {
             try {
                 $filter = $r | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue
                 if ($filter -and $filter.Program) { $progPath = $filter.Program }
-            } catch {}
+            } catch { $null = $_ }
 
             $rules += [PSCustomObject]@{
                 RuleName    = $r.DisplayName
@@ -58,6 +58,6 @@ function Get-DataControlFirewallRules {
                 Action      = $r.Action.ToString()
             }
         }
-    } catch {}
+    } catch { $null = $_ }
     return $rules
 }

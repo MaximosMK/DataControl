@@ -298,7 +298,6 @@ function Refresh-UsageDisplay {
     $dateNow = Get-Date
     $dayKey = $dateNow.ToString("yyyy-MM-dd")
     $monthKey = $dateNow.ToString("yyyy-MM")
-    $yearKey = $dateNow.ToString("yyyy")
 
     $dayBytes = 0.0
     if ($script:DataHistory.daily.PSObject.Properties[$dayKey]) {
@@ -308,11 +307,6 @@ function Refresh-UsageDisplay {
     $monthBytes = 0.0
     if ($script:DataHistory.monthly.PSObject.Properties[$monthKey]) {
         $monthBytes = [double]$script:DataHistory.monthly.$monthKey
-    }
-
-    $yearBytes = 0.0
-    if ($script:DataHistory.yearly.PSObject.Properties[$yearKey]) {
-        $yearBytes = [double]$script:DataHistory.yearly.$yearKey
     }
 
     $dayGB = $dayBytes / 1GB

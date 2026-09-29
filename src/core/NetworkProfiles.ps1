@@ -8,11 +8,11 @@
 
 function Get-ActiveNetworkProfile {
     try {
-        $profile = Get-NetConnectionProfile -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($profile) {
-            $name = [string]$profile.Name
-            $alias = [string]$profile.InterfaceAlias
-            $cat = [string]$profile.NetworkCategory
+        $netProfile = Get-NetConnectionProfile -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($netProfile) {
+            $name = [string]$netProfile.Name
+            $alias = [string]$netProfile.InterfaceAlias
+            $cat = [string]$netProfile.NetworkCategory
 
             $isUnlimited = $false
             if ($script:AppConfig.network_profiles -and $script:AppConfig.network_profiles.PSObject.Properties[$name]) {
@@ -27,7 +27,9 @@ function Get-ActiveNetworkProfile {
                 Mode            = if ($isUnlimited) { "Unlimited" } else { "Metered" }
             }
         }
-    } catch {}
+    } catch {
+        $null = $_
+    }
 
     return [PSCustomObject]@{
         Name            = "Default"

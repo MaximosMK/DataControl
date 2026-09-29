@@ -28,7 +28,9 @@ function Get-AppIconSource ([string]$exePath) {
                 return $src
             }
         }
-    } catch {}
+    } catch {
+        $null = $_
+    }
     return $null
 }
 
@@ -227,7 +229,7 @@ function Show-PromptWindow ($item) {
         if ($n) {
             Set-AppRule -appName $n -status "Allowed" -quotaMB 0 -path $p | Out-Null
             Unblock-ApplicationRule -ruleName "DataControl-Block-$n"
-            try { if (Get-Command Show-Toast -ErrorAction SilentlyContinue) { Show-Toast "Permitted unlimited outbound access for: $n" "#10B981" } } catch {}
+            try { if (Get-Command Show-Toast -ErrorAction SilentlyContinue) { Show-Toast "Permitted unlimited outbound access for: $n" "#10B981" } } catch { $null = $_ }
         }
         Close-ActivePrompt
     }.GetNewClosure())
@@ -239,7 +241,7 @@ function Show-PromptWindow ($item) {
         if ($n) {
             Set-AppRule -appName $n -status "Quota" -quotaMB 500 -path $p | Out-Null
             Unblock-ApplicationRule -ruleName "DataControl-Block-$n"
-            try { if (Get-Command Show-Toast -ErrorAction SilentlyContinue) { Show-Toast "Permitted $n with a 500 MB micro-quota." "#0284C7" } } catch {}
+            try { if (Get-Command Show-Toast -ErrorAction SilentlyContinue) { Show-Toast "Permitted $n with a 500 MB micro-quota." "#0284C7" } } catch { $null = $_ }
         }
         Close-ActivePrompt
     }.GetNewClosure())
@@ -253,7 +255,7 @@ function Show-PromptWindow ($item) {
                 Block-ApplicationPath -appPath $p -description "Blocked by User Prompt" | Out-Null
             }
             Set-AppRule -appName $n -status "Blocked" -quotaMB 0 -path $p | Out-Null
-            try { if (Get-Command Show-Toast -ErrorAction SilentlyContinue) { Show-Toast "Blocked outbound access for: $n" "#F43F5E" } } catch {}
+            try { if (Get-Command Show-Toast -ErrorAction SilentlyContinue) { Show-Toast "Blocked outbound access for: $n" "#F43F5E" } } catch { $null = $_ }
         }
         Close-ActivePrompt
     }.GetNewClosure())
@@ -276,7 +278,7 @@ function Show-PromptWindow ($item) {
                 if ($p -and (Test-Path $p)) {
                     try {
                         Block-ApplicationPath -appPath $p -description "Auto-Blocked (Prompt Expired - 30s Timeout)" | Out-Null
-                    } catch {}
+                    } catch { $null = $_ }
                 }
                 Set-AppRule -appName $n -status "AutoBlocked" -quotaMB 0 -path $p | Out-Null
 

@@ -71,7 +71,9 @@ function Update-NetworkMetrics {
 
             Save-DataHistory $script:DataHistory
         }
-    } catch {}
+    } catch {
+        $null = $_
+    }
 
     Update-AppProcessMetrics -ElapsedSeconds $elapsedSec
 }

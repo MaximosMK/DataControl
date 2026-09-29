@@ -37,7 +37,7 @@ function Load-AppConfig {
             if ($null -eq $raw.prompt_on_new_apps) { $raw | Add-Member -MemberType NoteProperty -Name "prompt_on_new_apps" -Value $false -Force }
             if ($null -eq $raw.prompt_timeout_seconds) { $raw | Add-Member -MemberType NoteProperty -Name "prompt_timeout_seconds" -Value 30 -Force }
             return $raw
-        } catch {}
+        } catch { $null = $_ }
     }
     return [PSCustomObject]@{
         target_adapter         = "Wi-Fi"
@@ -71,7 +71,7 @@ function Load-DataHistory {
             if (-not $raw.monthly) { $raw | Add-Member -MemberType NoteProperty -Name "monthly" -Value (New-Object PSCustomObject) -Force }
             if (-not $raw.yearly) { $raw | Add-Member -MemberType NoteProperty -Name "yearly" -Value (New-Object PSCustomObject) -Force }
             return $raw
-        } catch {}
+        } catch { $null = $_ }
     }
     return [PSCustomObject]@{
         last_raw_total_bytes = 0
@@ -94,7 +94,7 @@ function Load-AppHistory {
         try {
             $raw = Get-Content -Path $script:AppHistoryFile -Raw -Encoding UTF8 | ConvertFrom-Json
             return $raw
-        } catch {}
+        } catch { $null = $_ }
     }
     return (New-Object PSCustomObject)
 }
@@ -102,7 +102,7 @@ function Load-AppHistory {
 function Save-AppHistory ($appHist) {
     try {
         $appHist | ConvertTo-Json -Depth 6 | Set-Content -Path $script:AppHistoryFile -Encoding UTF8
-    } catch {}
+    } catch { $null = $_ }
 }
 
 # Per-App Permission Rules & Quotas Management
@@ -111,7 +111,7 @@ function Load-AppRules {
         try {
             $raw = Get-Content -Path $script:AppRulesFile -Raw -Encoding UTF8 | ConvertFrom-Json
             return $raw
-        } catch {}
+        } catch { $null = $_ }
     }
     return (New-Object PSCustomObject)
 }
@@ -119,7 +119,7 @@ function Load-AppRules {
 function Save-AppRules ($rules) {
     try {
         $rules | ConvertTo-Json -Depth 6 | Set-Content -Path $script:AppRulesFile -Encoding UTF8
-    } catch {}
+    } catch { $null = $_ }
 }
 
 function Get-AppRule {

@@ -60,7 +60,7 @@ function Check-EnforcementRules {
             if ($script:AppConfig.auto_disconnect_daily) {
                 try {
                     Disable-NetAdapter -Name $targetAdapter -Confirm:$false -ErrorAction SilentlyContinue
-                } catch {}
+                } catch { $null = $_ }
 
                 $NotifyIcon.ShowBalloonTip(
                     6000,
@@ -103,7 +103,7 @@ function Check-EnforcementRules {
             if ($script:AppConfig.auto_disconnect) {
                 try {
                     Disable-NetAdapter -Name $targetAdapter -Confirm:$false -ErrorAction SilentlyContinue
-                } catch {}
+                } catch { $null = $_ }
 
                 $NotifyIcon.ShowBalloonTip(
                     6000,

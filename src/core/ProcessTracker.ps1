@@ -25,7 +25,7 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
 
             $pName = $p.ProcessName + ".exe"
             $pPath = ""
-            try { $pPath = $p.Path } catch {}
+            try { $pPath = $p.Path } catch { $null = $_ }
 
             $connCount = ($tcpConns | Where-Object { $_.OwningProcess -eq $pidNum }).Count + ($udpConns | Where-Object { $_.OwningProcess -eq $pidNum }).Count
             $rawBytes = [Win11Native]::GetProcessBytes($pidNum)
@@ -62,7 +62,7 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
                 if ($script:AppHistory.PSObject.Properties[$pName]) {
                     $curHistTotal = [double]$script:AppHistory.$pName.TotalBytes
                 }
-                
+
                 $deltaToAdd = 0.0
                 if ($rawBytes -gt $prevBytes -and $prevBytes -gt 0) {
                     $deltaToAdd = $rawBytes - $prevBytes
@@ -93,7 +93,7 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
                             if ($pPath -and (Test-Path $pPath)) {
                                 try {
                                     Block-ApplicationPath -appPath $pPath -description "Per-App Quota Limit Exceeded ($($rule.QuotaMB) MB)" | Out-Null
-                                } catch {}
+                                } catch { $null = $_ }
                             }
                             $NotifyIcon.ShowBalloonTip(
                                 5000,
@@ -116,5 +116,7 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
         $script:ProcStateCache = $currentPids
         if ($historyUpdated) { Save-AppHistory $script:AppHistory }
         if ($rulesUpdated) { Save-AppRules $script:AppRules }
-    } catch {}
+    } catch {
+        $null = $_
+    }
 }
