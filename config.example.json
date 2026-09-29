@@ -11,8 +11,31 @@
   "prompt_timeout_seconds": 30,
   "network_profiles": {
     "Mobile_Hotspot": {
+      "name": "Mobile_Hotspot",
       "is_unlimited": false,
-      "mode": "Metered"
+      "mode": "Metered",
+      "daily_limit_gb": 1.5,
+      "monthly_limit_gb": 10.0,
+      "auto_disconnect_daily": true,
+      "auto_disconnect_monthly": true
+    },
+    "Home_Fiber": {
+      "name": "Home_Fiber",
+      "is_unlimited": true,
+      "mode": "Unlimited",
+      "daily_limit_gb": 0.0,
+      "monthly_limit_gb": 0.0,
+      "auto_disconnect_daily": false,
+      "auto_disconnect_monthly": false
+    },
+    "Office_Ethernet": {
+      "name": "Office_Ethernet",
+      "is_unlimited": false,
+      "mode": "Metered",
+      "daily_limit_gb": 5.0,
+      "monthly_limit_gb": 50.0,
+      "auto_disconnect_daily": true,
+      "auto_disconnect_monthly": true
     }
   }
 }

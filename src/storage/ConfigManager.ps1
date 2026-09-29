@@ -70,6 +70,8 @@ function Load-DataHistory {
             if (-not $raw.daily) { $raw | Add-Member -MemberType NoteProperty -Name "daily" -Value (New-Object PSCustomObject) -Force }
             if (-not $raw.monthly) { $raw | Add-Member -MemberType NoteProperty -Name "monthly" -Value (New-Object PSCustomObject) -Force }
             if (-not $raw.yearly) { $raw | Add-Member -MemberType NoteProperty -Name "yearly" -Value (New-Object PSCustomObject) -Force }
+            if (-not $raw.networks) { $raw | Add-Member -MemberType NoteProperty -Name "networks" -Value (New-Object PSCustomObject) -Force }
+            if (-not $raw.connection_types) { $raw | Add-Member -MemberType NoteProperty -Name "connection_types" -Value (New-Object PSCustomObject) -Force }
             return $raw
         } catch { $null = $_ }
     }
@@ -78,6 +80,8 @@ function Load-DataHistory {
         daily                = [PSCustomObject]@{}
         monthly              = [PSCustomObject]@{}
         yearly               = [PSCustomObject]@{}
+        networks             = [PSCustomObject]@{}
+        connection_types     = [PSCustomObject]@{}
     }
 }
 

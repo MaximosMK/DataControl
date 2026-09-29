@@ -81,6 +81,7 @@ function Set-ActiveView ([string]$viewName) {
             $script:UI.WorkspaceTitle.Text = "Usage Analytics & Billing Cycle"
             $script:UI.WorkspaceSubtitle.Text = "Daily, monthly, and yearly historical consumption breakdown and billing renewal reset"
             Refresh-AnalyticsDisplay
+            Refresh-NetworkBreakdownList
         }
         "Firewall" {
             $script:UI.ViewFirewall.Visibility = [System.Windows.Visibility]::Visible
@@ -299,23 +300,110 @@ function Refresh-UsageDisplay {
     $dayKey = $dateNow.ToString("yyyy-MM-dd")
     $monthKey = $dateNow.ToString("yyyy-MM")
 
-    $dayBytes = 0.0
+    # 1. Global Totals (Combined across all connections)
+    $totalDayBytes = 0.0
     if ($script:DataHistory.daily.PSObject.Properties[$dayKey]) {
-        $dayBytes = [double]$script:DataHistory.daily.$dayKey
+        $totalDayBytes = [double]$script:DataHistory.daily.$dayKey
     }
 
-    $monthBytes = 0.0
+    $totalMonthBytes = 0.0
     if ($script:DataHistory.monthly.PSObject.Properties[$monthKey]) {
-        $monthBytes = [double]$script:DataHistory.monthly.$monthKey
+        $totalMonthBytes = [double]$script:DataHistory.monthly.$monthKey
     }
 
-    $dayGB = $dayBytes / 1GB
-    $monthGB = $monthBytes / 1GB
+    $totalDayGB = $totalDayBytes / 1GB
+    $totalMonthGB = $totalMonthBytes / 1GB
 
-    $dailyLimitGB = [double]$script:AppConfig.daily_limit_gb
-    $dailyWarnGB  = [double]$script:AppConfig.daily_warning_gb
-    $monthlyLimitGB = [double]$script:AppConfig.monthly_limit_gb
-    $monthlyWarnGB  = [double]$script:AppConfig.warning_threshold_gb
+    # 2. Connection Type Totals (Wi-Fi vs Ethernet)
+    $wifiDayBytes = 0.0
+    $wifiMonthBytes = 0.0
+    if ($script:DataHistory.connection_types -and $script:DataHistory.connection_types.PSObject.Properties['Wi-Fi']) {
+        $wObj = $script:DataHistory.connection_types.'Wi-Fi'
+        if ($wObj.daily -and $wObj.daily.PSObject.Properties[$dayKey]) { $wifiDayBytes = [double]$wObj.daily.$dayKey }
+        if ($wObj.monthly -and $wObj.monthly.PSObject.Properties[$monthKey]) { $wifiMonthBytes = [double]$wObj.monthly.$monthKey }
+    }
+
+    $ethDayBytes = 0.0
+    $ethMonthBytes = 0.0
+    if ($script:DataHistory.connection_types -and $script:DataHistory.connection_types.PSObject.Properties['Ethernet']) {
+        $eObj = $script:DataHistory.connection_types.'Ethernet'
+        if ($eObj.daily -and $eObj.daily.PSObject.Properties[$dayKey]) { $ethDayBytes = [double]$eObj.daily.$dayKey }
+        if ($eObj.monthly -and $eObj.monthly.PSObject.Properties[$monthKey]) { $ethMonthBytes = [double]$eObj.monthly.$monthKey }
+    }
+
+    # 3. Active Network Profile Identity & Data
+    $prof = Get-ActiveNetworkProfile
+    $netName = $prof.Name
+    $netDayBytes = 0.0
+    $netMonthBytes = 0.0
+    if ($script:DataHistory.networks -and $script:DataHistory.networks.PSObject.Properties[$netName]) {
+        $nObj = $script:DataHistory.networks.$netName
+        if ($nObj.daily -and $nObj.daily.PSObject.Properties[$dayKey]) { $netDayBytes = [double]$nObj.daily.$dayKey }
+        if ($nObj.monthly -and $nObj.monthly.PSObject.Properties[$monthKey]) { $netMonthBytes = [double]$nObj.monthly.$monthKey }
+    }
+    $netDayGB = $netDayBytes / 1GB
+    $netMonthGB = $netMonthBytes / 1GB
+
+    # 4. Update Multi-Connection Realtime Counters Strip
+    if ($script:UI.TxtCounterTotalToday) {
+        $script:UI.TxtCounterTotalToday.Text = "Today: $(Format-Bytes $totalDayBytes)"
+        $script:UI.TxtCounterTotalMonth.Text = "Month: $([math]::Round($totalMonthGB, 2)) GB"
+    }
+    if ($script:UI.TxtCounterWifiToday) {
+        $script:UI.TxtCounterWifiToday.Text = "Today: $(Format-Bytes $wifiDayBytes)"
+        $script:UI.TxtCounterWifiMonth.Text = "Month: $([math]::Round($wifiMonthBytes / 1GB, 2)) GB"
+    }
+    if ($script:UI.TxtCounterEthToday) {
+        $script:UI.TxtCounterEthToday.Text = "Today: $(Format-Bytes $ethDayBytes)"
+        $script:UI.TxtCounterEthMonth.Text = "Month: $([math]::Round($ethMonthBytes / 1GB, 2)) GB"
+    }
+    if ($script:UI.TxtCounterActiveToday) {
+        $script:UI.TxtCounterActiveLabel.Text = "ACTIVE: $netName"
+        $script:UI.TxtCounterActiveToday.Text = "Today: $(Format-Bytes $netDayBytes)"
+        $script:UI.TxtCounterActiveMonth.Text = "Month: $([math]::Round($netMonthBytes / 1GB, 2)) GB"
+    }
+
+    # 5. Populate and Read Quota Scope Selector
+    if ($script:UI.ComboQuotaScope -and $script:UI.ComboQuotaScope.Items.Count -eq 0) {
+        $script:UI.ComboQuotaScope.Items.Add("Active Connection: $netName") | Out-Null
+        $script:UI.ComboQuotaScope.Items.Add("Total Global: All Connections Combined") | Out-Null
+        $script:UI.ComboQuotaScope.SelectedIndex = 0
+    }
+
+    $isTotalScope = ($script:UI.ComboQuotaScope -and $script:UI.ComboQuotaScope.SelectedIndex -eq 1)
+
+    if ($isTotalScope) {
+        # Total Global Metrics
+        $displayDayBytes = $totalDayBytes
+        $displayDayGB = $totalDayGB
+        $displayMonthBytes = $totalMonthBytes
+        $displayMonthGB = $totalMonthGB
+
+        $dailyLimitGB = [double]$script:AppConfig.daily_limit_gb
+        $dailyWarnGB  = [double]$script:AppConfig.daily_warning_gb
+        $monthlyLimitGB = [double]$script:AppConfig.monthly_limit_gb
+        $monthlyWarnGB  = [double]$script:AppConfig.warning_threshold_gb
+
+        if ($script:UI.TxtDailyQuotaTitle) { $script:UI.TxtDailyQuotaTitle.Text = "TOTAL DAILY QUOTA (ALL NETWORKS)" }
+        if ($script:UI.TxtMonthlyQuotaTitle) { $script:UI.TxtMonthlyQuotaTitle.Text = "TOTAL MONTHLY QUOTA (ALL NETWORKS)" }
+        if ($script:UI.TxtQuotaScopeDescription) { $script:UI.TxtQuotaScopeDescription.Text = "Displaying aggregate data and limits across all Wi-Fi and Ethernet adapters." }
+    } else {
+        # Active Network Specific Metrics
+        $displayDayBytes = $netDayBytes
+        $displayDayGB = $netDayGB
+        $displayMonthBytes = $netMonthBytes
+        $displayMonthGB = $netMonthGB
+
+        $dailyLimitGB = if ($prof.DailyLimitGB -gt 0) { [double]$prof.DailyLimitGB } else { [double]$script:AppConfig.daily_limit_gb }
+        $dailyWarnGB  = [math]::Round($dailyLimitGB * 0.85, 2)
+        $monthlyLimitGB = if ($prof.MonthlyLimitGB -gt 0) { [double]$prof.MonthlyLimitGB } else { [double]$script:AppConfig.monthly_limit_gb }
+        $monthlyWarnGB  = [math]::Round($monthlyLimitGB * 0.85, 2)
+
+        $customTag = if ($prof.DailyLimitGB -gt 0 -or $prof.MonthlyLimitGB -gt 0) { "CUSTOM" } else { "GLOBAL DEFAULT" }
+        if ($script:UI.TxtDailyQuotaTitle) { $script:UI.TxtDailyQuotaTitle.Text = "DAILY QUOTA: $netName ($customTag)" }
+        if ($script:UI.TxtMonthlyQuotaTitle) { $script:UI.TxtMonthlyQuotaTitle.Text = "MONTHLY QUOTA: $netName ($customTag)" }
+        if ($script:UI.TxtQuotaScopeDescription) { $script:UI.TxtQuotaScopeDescription.Text = "Displaying individual counter and quota for active connection '$netName' ($($prof.Type))." }
+    }
 
     # Live Throughput
     $rateBps = $script:CurrentThroughputBytesPerSec
@@ -327,24 +415,24 @@ function Refresh-UsageDisplay {
     $script:UI.TxtLiveSpeedTop.Text = $speedStr
     $script:UI.TxtHeroSpeed.Text = $speedStr
 
-    # 1. Daily Progress & Bar
+    # 6. Daily Progress & Bar
     $dailyPercent = 0.0
     if ($dailyLimitGB -gt 0) {
-        $dailyPercent = [math]::Round(($dayGB / $dailyLimitGB) * 100.0, 1)
+        $dailyPercent = [math]::Round(($displayDayGB / $dailyLimitGB) * 100.0, 1)
     }
     $script:UI.TxtDailyPercent.Text = "$dailyPercent%"
-    $script:UI.TxtDailyHero.Text = "$(Format-Bytes $dayBytes) / $dailyLimitGB GB"
-    $dailyRemain = [math]::Max(0.0, [math]::Round($dailyLimitGB - $dayGB, 2))
+    $script:UI.TxtDailyHero.Text = "$(Format-Bytes $displayDayBytes) / $dailyLimitGB GB"
+    $dailyRemain = [math]::Max(0.0, [math]::Round($dailyLimitGB - $displayDayGB, 2))
     $script:UI.TxtDailyRemaining.Text = "Remaining Today: $dailyRemain GB (Warning at $dailyWarnGB GB)"
 
     $dailyClamp = [math]::Min(100.0, [math]::Max(0.0, $dailyPercent))
     $barDailyWidth = [math]::Max(6.0, (380.0 * ($dailyClamp / 100.0)))
     $script:UI.BarDailyFill.Width = $barDailyWidth
 
-    if ($dayGB -ge $dailyLimitGB) {
+    if ($displayDayGB -ge $dailyLimitGB) {
         $script:UI.TxtDailyPercent.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
         $script:UI.BarDailyFill.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
-    } elseif ($dayGB -ge $dailyWarnGB) {
+    } elseif ($displayDayGB -ge $dailyWarnGB) {
         $script:UI.TxtDailyPercent.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
         $script:UI.BarDailyFill.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
     } else {
@@ -358,24 +446,24 @@ function Refresh-UsageDisplay {
         $script:UI.BarDailyFill.Background = $grad
     }
 
-    # 2. Monthly Progress & Bar
+    # 7. Monthly Progress & Bar
     $monthlyPercent = 0.0
     if ($monthlyLimitGB -gt 0) {
-        $monthlyPercent = [math]::Round(($monthGB / $monthlyLimitGB) * 100.0, 1)
+        $monthlyPercent = [math]::Round(($displayMonthGB / $monthlyLimitGB) * 100.0, 1)
     }
     $script:UI.TxtMonthlyPercent.Text = "$monthlyPercent%"
-    $script:UI.TxtMonthlyHero.Text = "$([math]::Round($monthGB, 2)) GB / $monthlyLimitGB GB"
-    $monthlyRemain = [math]::Max(0.0, [math]::Round($monthlyLimitGB - $monthGB, 2))
+    $script:UI.TxtMonthlyHero.Text = "$(Format-Bytes $displayMonthBytes) / $monthlyLimitGB GB"
+    $monthlyRemain = [math]::Max(0.0, [math]::Round($monthlyLimitGB - $displayMonthGB, 2))
     $script:UI.TxtMonthlyRemaining.Text = "Remaining This Month: $monthlyRemain GB (Warning at $monthlyWarnGB GB)"
 
     $monthlyClamp = [math]::Min(100.0, [math]::Max(0.0, $monthlyPercent))
     $barMonthlyWidth = [math]::Max(6.0, (380.0 * ($monthlyClamp / 100.0)))
     $script:UI.BarMonthlyFill.Width = $barMonthlyWidth
 
-    if ($monthGB -ge $monthlyLimitGB) {
+    if ($displayMonthGB -ge $monthlyLimitGB) {
         $script:UI.TxtMonthlyPercent.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
         $script:UI.BarMonthlyFill.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
-    } elseif ($monthGB -ge $monthlyWarnGB) {
+    } elseif ($displayMonthGB -ge $monthlyWarnGB) {
         $script:UI.TxtMonthlyPercent.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
         $script:UI.BarMonthlyFill.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
     } else {
@@ -390,14 +478,13 @@ function Refresh-UsageDisplay {
     }
 
     # System Tray Tooltip and Menu Updates
-    $prof = Get-ActiveNetworkProfile
     $modeTag = if ($prof.IsUnlimited) { "Unlimited" } else { "Metered ($dailyPercent%)" }
-    $trayStr = "DataControl: $(Format-Bytes $dayBytes) / $dailyLimitGB GB - $modeTag"
+    $trayStr = "DataControl: $(Format-Bytes $displayDayBytes) / $dailyLimitGB GB - $modeTag"
     if ($trayStr.Length -gt 63) { $trayStr = $trayStr.Substring(0, 63) }
     $NotifyIcon.Text = $trayStr
 
-    $script:TrayItemStatusToday.Text = "Today: $(Format-Bytes $dayBytes) / $dailyLimitGB GB ($dailyPercent%)"
-    $script:TrayItemStatusMonth.Text = "Month: $([math]::Round($monthGB, 2)) GB / $monthlyLimitGB GB ($monthlyPercent%)"
+    $script:TrayItemStatusToday.Text = "Today ($netName): $(Format-Bytes $netDayBytes) | Total: $(Format-Bytes $totalDayBytes)"
+    $script:TrayItemStatusMonth.Text = "Month ($netName): $([math]::Round($netMonthGB, 2)) GB | Total: $([math]::Round($totalMonthGB, 2)) GB"
 
     # Dashboard Top Apps Preview Table
     $topApps = $script:ProcStateCache.Values | Sort-Object -Property SpeedBps, SessionBytes -Descending | Select-Object -First 4
@@ -537,6 +624,74 @@ function Refresh-AnalyticsDisplay {
             }) | Out-Null
         }
     }
+
+    Refresh-NetworkBreakdownList
+}
+
+function Refresh-NetworkBreakdownList {
+    if (-not $script:UI.ListNetworkBreakdown) { return }
+    $script:UI.ListNetworkBreakdown.Items.Clear()
+
+    $networks = Get-AllKnownNetworks
+    foreach ($net in $networks) {
+        $dDisp = if ($net.DailyLimitGB -gt 0) { "$($net.DailyLimitGB) GB" } else { "Global ($($script:AppConfig.daily_limit_gb) GB)" }
+        $mDisp = if ($net.MonthlyLimitGB -gt 0) { "$($net.MonthlyLimitGB) GB" } else { "Global ($($script:AppConfig.monthly_limit_gb) GB)" }
+        $mMode = if ($net.IsUnlimited) { "Unlimited" } else { "Metered" }
+
+        $script:UI.ListNetworkBreakdown.Items.Add([PSCustomObject]@{
+            Name                = $net.Name
+            Type                = $net.Type
+            Status              = $net.Status
+            TodayFormatted      = Format-Bytes $net.TodayBytes
+            MonthFormatted      = Format-Bytes $net.MonthBytes
+            TotalFormatted      = Format-Bytes $net.TotalBytes
+            DailyQuotaDisplay   = $dDisp
+            MonthlyQuotaDisplay = $mDisp
+            ModeDisplay         = $mMode
+        }) | Out-Null
+    }
+
+    # Add Category Summaries (Wi-Fi, Ethernet, Cellular)
+    $catSummaries = Get-ConnectionTypesSummary
+    foreach ($cat in $catSummaries) {
+        if ($cat.TotalBytes -gt 0 -or $cat.TodayBytes -gt 0) {
+            $script:UI.ListNetworkBreakdown.Items.Add([PSCustomObject]@{
+                Name                = "Total $($cat.Type) (All Connections)"
+                Type                = $cat.Type
+                Status              = "Category Summary"
+                TodayFormatted      = Format-Bytes $cat.TodayBytes
+                MonthFormatted      = Format-Bytes $cat.MonthBytes
+                TotalFormatted      = Format-Bytes $cat.TotalBytes
+                DailyQuotaDisplay   = "--"
+                MonthlyQuotaDisplay = "--"
+                ModeDisplay         = "Summary"
+            }) | Out-Null
+        }
+    }
+
+    # Global Combined Row
+    $now = Get-Date
+    $dayKey = $now.ToString("yyyy-MM-dd")
+    $monthKey = $now.ToString("yyyy-MM")
+    $totDay = 0.0
+    if ($script:DataHistory.daily.PSObject.Properties[$dayKey]) { $totDay = [double]$script:DataHistory.daily.$dayKey }
+    $totMonth = 0.0
+    if ($script:DataHistory.monthly.PSObject.Properties[$monthKey]) { $totMonth = [double]$script:DataHistory.monthly.$monthKey }
+    $totYear = 0.0
+    $yearKey = $now.ToString("yyyy")
+    if ($script:DataHistory.yearly.PSObject.Properties[$yearKey]) { $totYear = [double]$script:DataHistory.yearly.$yearKey }
+
+    $script:UI.ListNetworkBreakdown.Items.Add([PSCustomObject]@{
+        Name                = "GLOBAL TOTAL (All Connections Combined)"
+        Type                = "Global Total"
+        Status              = "Aggregate"
+        TodayFormatted      = Format-Bytes $totDay
+        MonthFormatted      = Format-Bytes $totMonth
+        TotalFormatted      = Format-Bytes $totYear
+        DailyQuotaDisplay   = "$($script:AppConfig.daily_limit_gb) GB"
+        MonthlyQuotaDisplay = "$($script:AppConfig.monthly_limit_gb) GB"
+        ModeDisplay         = "Enforced"
+    }) | Out-Null
 }
 
 function Refresh-FirewallRulesList {
@@ -544,6 +699,95 @@ function Refresh-FirewallRulesList {
     $rules = Get-DataControlFirewallRules
     foreach ($r in $rules) {
         $script:UI.ListFirewallRules.Items.Add($r) | Out-Null
+    }
+}
+
+function Refresh-NetworkSettingsControls {
+    if (-not $script:UI.ComboNetworkProfileSelector) { return }
+
+    $networks = Get-AllKnownNetworks
+    $currentSel = [string]$script:UI.ComboNetworkProfileSelector.SelectedItem
+
+    $script:UI.ComboNetworkProfileSelector.Items.Clear()
+    foreach ($n in $networks) {
+        $script:UI.ComboNetworkProfileSelector.Items.Add($n.Name) | Out-Null
+    }
+
+    if ($currentSel -and ($networks.Name -contains $currentSel)) {
+        $script:UI.ComboNetworkProfileSelector.SelectedItem = $currentSel
+    } elseif ($networks.Count -gt 0) {
+        $activeNet = ($networks | Where-Object { $_.IsActive } | Select-Object -First 1)
+        if ($activeNet) {
+            $script:UI.ComboNetworkProfileSelector.SelectedItem = $activeNet.Name
+        } else {
+            $script:UI.ComboNetworkProfileSelector.SelectedIndex = 0
+        }
+    }
+
+    Update-SelectedNetworkSettingsDisplay
+}
+
+function Update-SelectedNetworkSettingsDisplay {
+    if (-not $script:UI.ComboNetworkProfileSelector) { return }
+    $selName = [string]$script:UI.ComboNetworkProfileSelector.SelectedItem
+    if (-not $selName) { return }
+
+    $networks = Get-AllKnownNetworks
+    $net = $networks | Where-Object { $_.Name -eq $selName } | Select-Object -First 1
+    if (-not $net) { return }
+
+    if ($script:UI.TxtNetworkSelectorInfo) {
+        $script:UI.TxtNetworkSelectorInfo.Text = "Type: $($net.Type) | Status: $($net.Status)"
+    }
+    if ($script:UI.ChkNetworkIsUnlimited) {
+        $script:UI.ChkNetworkIsUnlimited.IsChecked = [bool]$net.IsUnlimited
+    }
+    if ($script:UI.InputNetworkDailyLimit) {
+        $script:UI.InputNetworkDailyLimit.Text = [string]$net.DailyLimitGB
+    }
+    if ($script:UI.InputNetworkMonthlyLimit) {
+        $script:UI.InputNetworkMonthlyLimit.Text = [string]$net.MonthlyLimitGB
+    }
+    if ($script:UI.ChkNetworkAutoDaily) {
+        $script:UI.ChkNetworkAutoDaily.IsChecked = [bool]$net.AutoDisconnectDaily
+    }
+    if ($script:UI.ChkNetworkAutoMonthly) {
+        $script:UI.ChkNetworkAutoMonthly.IsChecked = [bool]$net.AutoDisconnectMonthly
+    }
+    if ($script:UI.TxtNetworkSaveStatus) {
+        $script:UI.TxtNetworkSaveStatus.Text = ""
+    }
+}
+
+function Save-SelectedNetworkLimits {
+    $selName = [string]$script:UI.ComboNetworkProfileSelector.SelectedItem
+    if (-not $selName) {
+        Show-Toast "Please select a network profile first." "#F43F5E"
+        return
+    }
+
+    try {
+        $dLimit = [double]$script:UI.InputNetworkDailyLimit.Text
+        $mLimit = [double]$script:UI.InputNetworkMonthlyLimit.Text
+        $autoD = [bool]$script:UI.ChkNetworkAutoDaily.IsChecked
+        $autoM = [bool]$script:UI.ChkNetworkAutoMonthly.IsChecked
+        $isUnlim = [bool]$script:UI.ChkNetworkIsUnlimited.IsChecked
+
+        Set-NetworkProfileLimits -networkName $selName `
+            -dailyLimitGB $dLimit `
+            -monthlyLimitGB $mLimit `
+            -autoCutoffDaily $autoD `
+            -autoCutoffMonthly $autoM `
+            -isUnlimited $isUnlim
+
+        if ($script:UI.TxtNetworkSaveStatus) {
+            $script:UI.TxtNetworkSaveStatus.Text = "Saved quota for '$selName'!"
+        }
+        Show-Toast "Per-network quota updated for '$selName'!" "#10B981"
+        Refresh-UsageDisplay
+        Refresh-NetworkBreakdownList
+    } catch {
+        Show-Toast "Failed to save network limits: $($_.Exception.Message)" "#F43F5E"
     }
 }
 
@@ -561,6 +805,8 @@ function Refresh-SettingsInputs {
 
     $script:UI.ChkSettingStartWithWindows.IsChecked = Test-StartupTaskEnabled
     $script:UI.InputPollSeconds.Text = [string]$script:AppConfig.poll_frequency_seconds
+
+    Refresh-NetworkSettingsControls
 }
 
 function Toggle-TargetAdapterHardware {

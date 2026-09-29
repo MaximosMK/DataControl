@@ -79,17 +79,22 @@ Block any program instantly without opening complex firewall management consoles
 - Only the target application is blocked—your browser, messaging apps, and critical work tools remain completely unaffected.
 - Unblock or change permissions at any time from the **App Rules** workspace.
 
-### 3. ⏱️ Dual Quotas & Automatic Cutoff (Daily & Monthly)
-Set clear, enforceable boundaries to protect your data plan:
-- **Daily Quota**: Configure your daily data limit and warning threshold (e.g., 2 GB daily limit, warning at 1.7 GB).
-- **Monthly Quota**: Set your monthly billing cycle ceiling (e.g., 16 GB monthly limit, warning at 14 GB).
-- **Automated Cutoff**: Optionally enable automatic adapter disconnection when limits are reached to eliminate accidental bill shock.
+### 3. ⏱️ Dual-Level Limiters (Global Aggregate & Per-Network Quotas)
+Set clear, enforceable boundaries to protect both your overall monthly data budget and individual network packages:
+- **Global Total Limiter (All Connections Combined)**:
+  - Total Daily and Total Monthly limiters tracking cumulative usage across all physical adapters combined (Wi-Fi + Ethernet).
+  - Automatically isolates hardware if total combined data reaches your threshold.
+- **Per-Network Limiters (Individual Wi-Fi SSIDs & Ethernet Networks)**:
+  - Set specific daily and monthly quotas on individual networks (e.g. 1.5 GB daily limit on your mobile hotspot, but 20 GB or unlimited on home fiber/Ethernet).
+  - Automatic hardware shutoff can be toggled per network so your phone hotspot is safeguarded without restricting other connections.
+- **Dashboard Quota Scope Switcher**:
+  - Instantly toggle between viewing the active connection's individual quota and the total aggregate quota across all networks.
 
-### 4. 🌐 Context-Aware Network Profiles
-DataControl automatically detects your active network profile:
-- **Metered Mode (Hotspot / Limited Plan)**: Strict quotas, active firewall rules, and zero-trust prompts are engaged.
-- **Unlimited Mode (Home Fiber / Office LAN)**: Quotas and prompts can be paused so you can download large updates freely.
-- **One-Click Switch**: Toggle modes anytime directly from the top header badge.
+### 4. 📶 Multi-Connection Realtime Counters & Intelligence
+DataControl tracks and categorizes network traffic across every connection method:
+- **Realtime Counters Strip**: Instant visibility into **Total Combined**, **Wi-Fi Total**, **Ethernet Total**, and the **Active Network**.
+- **Analytics Networks Breakdown**: Comprehensive audit table listing every saved and active Wi-Fi SSID and Ethernet adapter, showing today's usage, monthly usage, all-time totals, individual quotas, and connection modes.
+- **Metered vs Unlimited Mode**: Mark specific trusted connections (e.g. office LAN or unmetered home fiber) as Unlimited to bypass cutoffs, while keeping cellular hotspots strictly governed.
 
 ### 5. 📈 Persistent Historical Usage Ledger
 Standard Windows Task Manager resets network stats every time you restart your PC. DataControl maintains a persistent, local JSON ledger:

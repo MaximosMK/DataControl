@@ -421,6 +421,69 @@
                             </Grid>
                         </Border>
 
+                        <!-- Multi-Connection Realtime Counters Strip -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1*"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="1*"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="1*"/>
+                                <ColumnDefinition Width="10"/>
+                                <ColumnDefinition Width="1*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Global Total Counter Card -->
+                            <Border Grid.Column="0" Background="#111827" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                                <StackPanel>
+                                    <TextBlock Text="🌐 TOTAL COMBINED" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="10"/>
+                                    <TextBlock x:Name="TxtCounterTotalToday" Text="Today: 0.00 MB" Foreground="#38BDF8" FontWeight="Bold" FontSize="12" Margin="0,2,0,0"/>
+                                    <TextBlock x:Name="TxtCounterTotalMonth" Text="Month: 0.00 GB" Foreground="#64748B" FontSize="10.5"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Wi-Fi Counter Card -->
+                            <Border Grid.Column="2" Background="#111827" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                                <StackPanel>
+                                    <TextBlock Text="📶 WI-FI TOTAL" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="10"/>
+                                    <TextBlock x:Name="TxtCounterWifiToday" Text="Today: 0.00 MB" Foreground="#10B981" FontWeight="Bold" FontSize="12" Margin="0,2,0,0"/>
+                                    <TextBlock x:Name="TxtCounterWifiMonth" Text="Month: 0.00 GB" Foreground="#64748B" FontSize="10.5"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Ethernet Counter Card -->
+                            <Border Grid.Column="4" Background="#111827" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                                <StackPanel>
+                                    <TextBlock Text="🔌 ETHERNET TOTAL" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="10"/>
+                                    <TextBlock x:Name="TxtCounterEthToday" Text="Today: 0.00 MB" Foreground="#F59E0B" FontWeight="Bold" FontSize="12" Margin="0,2,0,0"/>
+                                    <TextBlock x:Name="TxtCounterEthMonth" Text="Month: 0.00 GB" Foreground="#64748B" FontSize="10.5"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Active Network Profile Pill -->
+                            <Border Grid.Column="6" Background="#111827" BorderBrush="#1F2937" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                                <StackPanel>
+                                    <TextBlock x:Name="TxtCounterActiveLabel" Text="🎯 ACTIVE NETWORK" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="10"/>
+                                    <TextBlock x:Name="TxtCounterActiveToday" Text="Today: 0.00 MB" Foreground="#A855F7" FontWeight="Bold" FontSize="12" Margin="0,2,0,0"/>
+                                    <TextBlock x:Name="TxtCounterActiveMonth" Text="Month: 0.00 GB" Foreground="#64748B" FontSize="10.5"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- Quota Display Scope Switcher Bar -->
+                        <Border Background="#131B2E" BorderBrush="#1E2D4A" BorderThickness="1" CornerRadius="8" Padding="12,7" Margin="0,0,0,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="260"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="📊 Measure Quota For: " Foreground="#94A3B8" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                <ComboBox x:Name="ComboQuotaScope" Grid.Column="1" Height="26"/>
+                                <TextBlock x:Name="TxtQuotaScopeDescription" Grid.Column="2" Text="Showing active connection limits &amp; usage." Foreground="#64748B" FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                            </Grid>
+                        </Border>
+
                         <!-- Responsive Dual Quota Cards (2-Column Proportional Grid) -->
                         <Grid Margin="0,0,0,14">
                             <Grid.ColumnDefinitions>
@@ -433,7 +496,7 @@
                             <Border Grid.Column="0" Style="{StaticResource ModernCard}">
                                 <StackPanel>
                                     <Grid>
-                                        <TextBlock Text="📅 DAILY QUOTA" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                        <TextBlock x:Name="TxtDailyQuotaTitle" Text="📅 DAILY QUOTA" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
                                         <TextBlock x:Name="TxtDailyPercent" Text="0.0%" Foreground="#38BDF8" FontWeight="Bold" FontSize="15" HorizontalAlignment="Right"/>
                                     </Grid>
                                     <TextBlock x:Name="TxtDailyHero" Text="0.00 MB / 2.00 GB" Foreground="#F8FAFC" FontWeight="Bold" FontSize="22" Margin="0,6,0,0"/>
@@ -453,7 +516,7 @@
                                     </Border>
 
                                     <TextBlock x:Name="TxtDailyRemaining" Text="Remaining Today: 2.00 GB" Foreground="#64748B" FontSize="11.5" Margin="0,8,0,0"/>
-                                    <CheckBox x:Name="ToggleDailyCutoff" Content="Auto-disconnect Wi-Fi when daily quota reached" Style="{StaticResource ModernToggle}" Margin="0,12,0,0"/>
+                                    <CheckBox x:Name="ToggleDailyCutoff" Content="Auto-disconnect adapter when daily quota reached" Style="{StaticResource ModernToggle}" Margin="0,12,0,0"/>
                                 </StackPanel>
                             </Border>
 
@@ -461,7 +524,7 @@
                             <Border Grid.Column="2" Style="{StaticResource ModernCard}">
                                 <StackPanel>
                                     <Grid>
-                                        <TextBlock Text="🌐 MONTHLY QUOTA" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                        <TextBlock x:Name="TxtMonthlyQuotaTitle" Text="🌐 MONTHLY QUOTA" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
                                         <TextBlock x:Name="TxtMonthlyPercent" Text="0.0%" Foreground="#10B981" FontWeight="Bold" FontSize="15" HorizontalAlignment="Right"/>
                                     </Grid>
                                     <TextBlock x:Name="TxtMonthlyHero" Text="0.00 GB / 16.00 GB" Foreground="#F8FAFC" FontWeight="Bold" FontSize="22" Margin="0,6,0,0"/>
@@ -481,7 +544,7 @@
                                     </Border>
 
                                     <TextBlock x:Name="TxtMonthlyRemaining" Text="Remaining This Month: 16.00 GB" Foreground="#64748B" FontSize="11.5" Margin="0,8,0,0"/>
-                                    <CheckBox x:Name="ToggleMonthlyCutoff" Content="Auto-disconnect Wi-Fi when monthly quota reached" Style="{StaticResource ModernToggle}" Margin="0,12,0,0"/>
+                                    <CheckBox x:Name="ToggleMonthlyCutoff" Content="Auto-disconnect adapter when monthly quota reached" Style="{StaticResource ModernToggle}" Margin="0,12,0,0"/>
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -737,6 +800,34 @@
                             </Border>
                         </Grid>
 
+                        <!-- All Networks & Connection Types Breakdown Table -->
+                        <Border Style="{StaticResource ModernCard}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <StackPanel>
+                                        <TextBlock Text="ALL NETWORKS &amp; CONNECTION TYPES BREAKDOWN" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                        <TextBlock Text="Independent telemetry counters and active quotas for each Wi-Fi SSID and Ethernet connection." Foreground="#64748B" FontSize="11.5" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <Button x:Name="BtnRefreshNetworkBreakdown" Content="🔄 Refresh Networks" Style="{StaticResource SecondaryBtn}" Padding="10,4" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                                </Grid>
+                                <ListView x:Name="ListNetworkBreakdown" Height="190">
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Header="Network / Connection" Width="180" DisplayMemberBinding="{Binding Path=Name}"/>
+                                            <GridViewColumn Header="Type" Width="90" DisplayMemberBinding="{Binding Path=Type}"/>
+                                            <GridViewColumn Header="Status" Width="130" DisplayMemberBinding="{Binding Path=Status}"/>
+                                            <GridViewColumn Header="Today" Width="110" DisplayMemberBinding="{Binding Path=TodayFormatted}"/>
+                                            <GridViewColumn Header="This Month" Width="110" DisplayMemberBinding="{Binding Path=MonthFormatted}"/>
+                                            <GridViewColumn Header="All-Time Total" Width="120" DisplayMemberBinding="{Binding Path=TotalFormatted}"/>
+                                            <GridViewColumn Header="Daily Quota" Width="100" DisplayMemberBinding="{Binding Path=DailyQuotaDisplay}"/>
+                                            <GridViewColumn Header="Monthly Quota" Width="100" DisplayMemberBinding="{Binding Path=MonthlyQuotaDisplay}"/>
+                                            <GridViewColumn Header="Mode" Width="90" DisplayMemberBinding="{Binding Path=ModeDisplay}"/>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Billing Cycle Synchronization Card -->
                         <Border Style="{StaticResource ModernCard}" Margin="0,0,0,14">
                             <Grid>
@@ -820,7 +911,8 @@
                     <StackPanel>
                         <Border Style="{StaticResource ModernCard}" Margin="0,0,0,14">
                             <StackPanel>
-                                <TextBlock Text="DUAL QUOTA CONFIGURATION &amp; THRESHOLDS" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11" Margin="0,0,0,12"/>
+                                <!-- 1. Global Combined Quotas -->
+                                <TextBlock Text="GLOBAL COMBINED QUOTAS (ALL NETWORKS TOTAL)" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11" Margin="0,0,0,12"/>
                                 
                                 <Grid Margin="0,0,0,14">
                                     <Grid.ColumnDefinitions>
@@ -832,31 +924,83 @@
                                     <!-- Daily Settings -->
                                     <Border Grid.Column="0" Background="#0E1422" CornerRadius="8" BorderBrush="#1E2D4A" BorderThickness="1" Padding="14">
                                         <StackPanel>
-                                            <TextBlock Text="Daily Quota Settings" Foreground="#38BDF8" FontWeight="Bold" FontSize="13" Margin="0,0,0,10"/>
-                                            <TextBlock Text="Daily Limit (GB):" Foreground="#94A3B8" FontSize="12"/>
+                                            <TextBlock Text="Total Daily Quota Settings" Foreground="#38BDF8" FontWeight="Bold" FontSize="13" Margin="0,0,0,10"/>
+                                            <TextBlock Text="Total Daily Limit (GB):" Foreground="#94A3B8" FontSize="12"/>
                                             <TextBox x:Name="InputDailyLimit" Height="26" Margin="0,4,0,10"/>
 
-                                            <TextBlock Text="Daily Warning Threshold (GB):" Foreground="#94A3B8" FontSize="12"/>
+                                            <TextBlock Text="Total Daily Warning Threshold (GB):" Foreground="#94A3B8" FontSize="12"/>
                                             <TextBox x:Name="InputDailyWarn" Height="26" Margin="0,4,0,10"/>
 
-                                            <CheckBox x:Name="ChkSettingAutoDaily" Content="Cutoff: Disable Wi-Fi at Daily Limit" Style="{StaticResource ModernToggle}"/>
+                                            <CheckBox x:Name="ChkSettingAutoDaily" Content="Cutoff: Disable adapter at Total Daily Limit" Style="{StaticResource ModernToggle}"/>
                                         </StackPanel>
                                     </Border>
 
                                     <!-- Monthly Settings -->
                                     <Border Grid.Column="2" Background="#0E1422" CornerRadius="8" BorderBrush="#1E2D4A" BorderThickness="1" Padding="14">
                                         <StackPanel>
-                                            <TextBlock Text="Monthly Quota Settings" Foreground="#10B981" FontWeight="Bold" FontSize="13" Margin="0,0,0,10"/>
-                                            <TextBlock Text="Monthly Limit (GB):" Foreground="#94A3B8" FontSize="12"/>
+                                            <TextBlock Text="Total Monthly Quota Settings" Foreground="#10B981" FontWeight="Bold" FontSize="13" Margin="0,0,0,10"/>
+                                            <TextBlock Text="Total Monthly Limit (GB):" Foreground="#94A3B8" FontSize="12"/>
                                             <TextBox x:Name="InputMonthlyLimit" Height="26" Margin="0,4,0,10"/>
 
-                                            <TextBlock Text="Monthly Warning Threshold (GB):" Foreground="#94A3B8" FontSize="12"/>
+                                            <TextBlock Text="Total Monthly Warning Threshold (GB):" Foreground="#94A3B8" FontSize="12"/>
                                             <TextBox x:Name="InputMonthlyWarn" Height="26" Margin="0,4,0,10"/>
 
-                                            <CheckBox x:Name="ChkSettingAutoMonthly" Content="Cutoff: Disable Wi-Fi at Monthly Limit" Style="{StaticResource ModernToggle}"/>
+                                            <CheckBox x:Name="ChkSettingAutoMonthly" Content="Cutoff: Disable adapter at Total Monthly Limit" Style="{StaticResource ModernToggle}"/>
                                         </StackPanel>
                                     </Border>
                                 </Grid>
+
+                                <!-- 2. Per-Network Limiters & Connection Quotas -->
+                                <Border Background="#0E1422" CornerRadius="8" BorderBrush="#1E2D4A" BorderThickness="1" Padding="14" Margin="0,0,0,14">
+                                    <StackPanel>
+                                        <TextBlock Text="PER-NETWORK LIMITERS (SPECIFIC WI-FI &amp; ETHERNET QUOTAS)" Foreground="#38BDF8" FontWeight="Bold" FontSize="13" Margin="0,0,0,4"/>
+                                        <TextBlock Text="Configure independent bandwidth quotas and automatic cutoffs for specific networks (e.g. mobile hotspot vs home fiber)." Foreground="#64748B" FontSize="11.5" Margin="0,0,0,12"/>
+                                        
+                                        <Grid Margin="0,0,0,12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="250"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="Select Network:" Foreground="#94A3B8" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                            <ComboBox x:Name="ComboNetworkProfileSelector" Grid.Column="1" Height="26"/>
+                                            <TextBlock x:Name="TxtNetworkSelectorInfo" Grid.Column="2" Text="Type: Wi-Fi | Status: Connected" Foreground="#10B981" FontWeight="SemiBold" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                        </Grid>
+
+                                        <CheckBox x:Name="ChkNetworkIsUnlimited" Content="Exempt this network from limits (Unlimited Mode - No cutoffs)" Style="{StaticResource ModernToggle}" Margin="0,0,0,12"/>
+
+                                        <Grid Margin="0,0,0,12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="1*"/>
+                                                <ColumnDefinition Width="14"/>
+                                                <ColumnDefinition Width="1*"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <!-- Network Daily Limits -->
+                                            <Border Grid.Column="0" Background="#131B2E" CornerRadius="6" BorderBrush="#1E2D4A" BorderThickness="1" Padding="10">
+                                                <StackPanel>
+                                                    <TextBlock Text="Network Daily Limit (GB):" Foreground="#94A3B8" FontSize="12"/>
+                                                    <TextBox x:Name="InputNetworkDailyLimit" Height="26" Margin="0,4,0,8"/>
+                                                    <CheckBox x:Name="ChkNetworkAutoDaily" Content="Auto-cutoff at network daily limit" Style="{StaticResource ModernToggle}"/>
+                                                </StackPanel>
+                                            </Border>
+
+                                            <!-- Network Monthly Limits -->
+                                            <Border Grid.Column="2" Background="#131B2E" CornerRadius="6" BorderBrush="#1E2D4A" BorderThickness="1" Padding="10">
+                                                <StackPanel>
+                                                    <TextBlock Text="Network Monthly Limit (GB):" Foreground="#94A3B8" FontSize="12"/>
+                                                    <TextBox x:Name="InputNetworkMonthlyLimit" Height="26" Margin="0,4,0,8"/>
+                                                    <CheckBox x:Name="ChkNetworkAutoMonthly" Content="Auto-cutoff at network monthly limit" Style="{StaticResource ModernToggle}"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </Grid>
+
+                                        <StackPanel Orientation="Horizontal">
+                                            <Button x:Name="BtnSaveNetworkLimits" Content="💾 Save Network Limits" Style="{StaticResource SuccessBtn}" Padding="14,6" Margin="0,0,12,0"/>
+                                            <TextBlock x:Name="TxtNetworkSaveStatus" Text="" Foreground="#10B981" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
 
                                 <!-- Interactive Prompt & Zero-Trust Policies -->
                                 <Border Background="#0E1422" CornerRadius="8" BorderBrush="#1E2D4A" BorderThickness="1" Padding="14" Margin="0,0,0,14">

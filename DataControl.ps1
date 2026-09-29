@@ -67,6 +67,8 @@ $script:DailyWarningNotified = $false
 $script:DailyLimitNotified = $false
 $script:MonthlyWarningNotified = $false
 $script:MonthlyLimitNotified = $false
+$script:NetDailyLimitNotified = $false
+$script:NetMonthlyLimitNotified = $false
 $script:CurrentThroughputBytesPerSec = 0.0
 $script:AllowRealExit = $false
 $script:ProcStateCache = @{}
@@ -102,6 +104,9 @@ $elementNames = @(
     "TxtManualRulePath", "BtnBrowseManualRule", "BtnAddManualAllow", "BtnAddManualQuota", "BtnAddManualBlock",
     "ViewDashboard", "ViewLiveApps", "ViewAppRules", "ViewAppHistory", "ViewAnalytics", "ViewFirewall", "ViewSettings",
     "ComboAdapters", "TxtAdapterDetails", "TxtHeroSpeed", "BtnDisableWifiHero", "BtnEnableWifiHero",
+    "TxtCounterTotalToday", "TxtCounterTotalMonth", "TxtCounterWifiToday", "TxtCounterWifiMonth",
+    "TxtCounterEthToday", "TxtCounterEthMonth", "TxtCounterActiveLabel", "TxtCounterActiveToday", "TxtCounterActiveMonth",
+    "ComboQuotaScope", "TxtQuotaScopeDescription", "TxtDailyQuotaTitle", "TxtMonthlyQuotaTitle",
     "TxtDailyPercent", "TxtDailyHero", "BarDailyFill", "TxtDailyRemaining", "ToggleDailyCutoff",
     "TxtMonthlyPercent", "TxtMonthlyHero", "BarMonthlyFill", "TxtMonthlyRemaining", "ToggleMonthlyCutoff",
     "ListDashboardTopApps", "TxtLiveSearch", "BtnRefreshLive", "ListLiveApps", "BtnBlockLiveApp", "TxtLiveBlockStatus",
@@ -109,10 +114,14 @@ $elementNames = @(
     "BtnResetAppHistory", "ListAppHistory", "BtnBlockHistoryApp", "TxtHistoryBlockStatus",
     "TxtAnalyticsToday", "TxtAnalyticsTodaySub", "TxtAnalyticsMonth", "TxtAnalyticsMonthSub",
     "TxtAnalyticsYear", "TxtAnalyticsYearSub", "BtnResetCurrentMonth", "ListDailyHistory",
+    "BtnRefreshNetworkBreakdown", "ListNetworkBreakdown",
     "TxtFirewallExePath", "BtnBrowseExe", "BtnBlockExeManual", "TxtFirewallManualStatus",
     "ListFirewallRules", "BtnUnblockRule", "BtnRefreshRules",
     "InputDailyLimit", "InputDailyWarn", "ChkSettingAutoDaily",
     "InputMonthlyLimit", "InputMonthlyWarn", "ChkSettingAutoMonthly",
+    "ComboNetworkProfileSelector", "TxtNetworkSelectorInfo", "ChkNetworkIsUnlimited",
+    "InputNetworkDailyLimit", "ChkNetworkAutoDaily", "InputNetworkMonthlyLimit", "ChkNetworkAutoMonthly",
+    "BtnSaveNetworkLimits", "TxtNetworkSaveStatus",
     "ChkSettingPromptNewApps", "InputPromptTimeout",
     "ChkSettingStartWithWindows", "InputPollSeconds", "BtnSaveAllSettings"
 )
@@ -238,6 +247,13 @@ $script:UI.ToggleMonthlyCutoff.Add_Click({
     $script:AppConfig.auto_disconnect = [bool]$script:UI.ToggleMonthlyCutoff.IsChecked
     Save-AppConfig $script:AppConfig
 })
+
+# Quota Scope Switcher
+if ($script:UI.ComboQuotaScope) {
+    $script:UI.ComboQuotaScope.Add_SelectionChanged({
+        Refresh-UsageDisplay
+    })
+}
 
 # Live Apps Filtering & Actions
 $script:UI.TxtLiveSearch.Add_TextChanged({ Refresh-LiveAppsList })
@@ -444,6 +460,14 @@ $script:UI.BtnResetCurrentMonth.Add_Click({
     }
 })
 
+# Networks Breakdown Table Refresh
+if ($script:UI.BtnRefreshNetworkBreakdown) {
+    $script:UI.BtnRefreshNetworkBreakdown.Add_Click({
+        Refresh-NetworkBreakdownList
+        Show-Toast "Networks breakdown refreshed."
+    })
+}
+
 # Firewall Rules Tab Handlers
 $script:UI.BtnBrowseExe.Add_Click({
     $ofd = New-Object System.Windows.Forms.OpenFileDialog
@@ -532,6 +556,18 @@ $script:UI.BtnSaveAllSettings.Add_Click({
     }
 })
 
+# Per-Network Limits & Settings Handlers
+if ($script:UI.ComboNetworkProfileSelector) {
+    $script:UI.ComboNetworkProfileSelector.Add_SelectionChanged({
+        Update-SelectedNetworkSettingsDisplay
+    })
+}
+if ($script:UI.BtnSaveNetworkLimits) {
+    $script:UI.BtnSaveNetworkLimits.Add_Click({
+        Save-SelectedNetworkLimits
+    })
+}
+
 # Sidebar Exit
 $script:UI.BtnSidebarExit.Add_Click({
     $res = [System.Windows.MessageBox]::Show("Do you want to completely exit DataControl?`n`nTo keep monitoring data in the background, click No and simply close the window [X].", "Exit DataControl", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Question)
@@ -611,6 +647,8 @@ $Window.Add_Loaded({
     Refresh-AppHistoryList
     Refresh-FirewallRulesList
     Refresh-SettingsInputs
+    Refresh-NetworkBreakdownList
+    Refresh-NetworkSettingsControls
 
     $script:UI.ToggleDailyCutoff.IsChecked = [bool]$script:AppConfig.auto_disconnect_daily
     $script:UI.ToggleMonthlyCutoff.IsChecked = [bool]$script:AppConfig.auto_disconnect
