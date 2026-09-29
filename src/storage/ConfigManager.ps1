@@ -34,7 +34,7 @@ function Load-AppConfig {
             if (-not $raw.daily_warning_gb) { $raw | Add-Member -MemberType NoteProperty -Name "daily_warning_gb" -Value 1.7 -Force }
             if ($null -eq $raw.auto_disconnect_daily) { $raw | Add-Member -MemberType NoteProperty -Name "auto_disconnect_daily" -Value $true -Force }
             if (-not $raw.network_profiles) { $raw | Add-Member -MemberType NoteProperty -Name "network_profiles" -Value (New-Object PSCustomObject) -Force }
-            if ($null -eq $raw.prompt_on_new_apps) { $raw | Add-Member -MemberType NoteProperty -Name "prompt_on_new_apps" -Value $true -Force }
+            if ($null -eq $raw.prompt_on_new_apps) { $raw | Add-Member -MemberType NoteProperty -Name "prompt_on_new_apps" -Value $false -Force }
             if ($null -eq $raw.prompt_timeout_seconds) { $raw | Add-Member -MemberType NoteProperty -Name "prompt_timeout_seconds" -Value 30 -Force }
             return $raw
         } catch {}
@@ -48,7 +48,7 @@ function Load-AppConfig {
         auto_disconnect        = $true
         auto_disconnect_daily  = $true
         poll_frequency_seconds = 3
-        prompt_on_new_apps     = $true
+        prompt_on_new_apps     = $false
         prompt_timeout_seconds = 30
         network_profiles       = [PSCustomObject]@{}
     }
@@ -122,27 +122,67 @@ function Save-AppRules ($rules) {
     } catch {}
 }
 
-function Get-AppRule ([string]$appName) {
+function Get-AppRule {
+    param (
+        [Parameter(Mandatory=$true)]
+        [Alias("Name")]
+        [string]$appName
+    )
     if (-not $appName) { return $null }
-    $pKey = $appName.ToLower()
-    if ($script:AppRules -and $script:AppRules.PSObject.Properties[$pKey]) {
-        return $script:AppRules.$pKey
+    $pKey = $appName.ToLower().Trim()
+    if ($script:AppRules) {
+        if ($script:AppRules.PSObject.Properties[$pKey]) {
+            return $script:AppRules.$pKey
+        }
+        $noExt = [System.IO.Path]::GetFileNameWithoutExtension($pKey)
+        if ($script:AppRules.PSObject.Properties[$noExt]) {
+            return $script:AppRules.$noExt
+        }
+        $withExt = $noExt + ".exe"
+        if ($script:AppRules.PSObject.Properties[$withExt]) {
+            return $script:AppRules.$withExt
+        }
     }
     return $null
 }
 
-function Set-AppRule ([string]$appName, [string]$status, [double]$quotaMB = 0, [string]$path = "") {
-    if (-not $appName) { return }
-    $pKey = $appName.ToLower()
+function Set-AppRule {
+    param (
+        [Parameter(Mandatory=$true)]
+        [Alias("Name")]
+        [string]$appName,
 
-    $existing = Get-AppRule $appName
+        [Parameter(Mandatory=$true)]
+        [Alias("Permission")]
+        [string]$status,
+
+        [Alias("Quota")]
+        [double]$quotaMB = 0,
+
+        [Alias("AppPath")]
+        [string]$path = ""
+    )
+    if (-not $appName) { return $null }
+    $cleanName = [System.IO.Path]::GetFileName($appName).Trim()
+    if (-not $cleanName.EndsWith(".exe", [System.StringComparison]::OrdinalIgnoreCase)) {
+        $cleanName = $cleanName + ".exe"
+    }
+    $pKey = $cleanName.ToLower()
+
+    if (-not $script:AppRules) {
+        $script:AppRules = Load-AppRules
+    }
+
+    $existing = Get-AppRule $cleanName
     $consumed = 0.0
     if ($existing -and $existing.ConsumedBytes) { $consumed = [double]$existing.ConsumedBytes }
 
+    $finalPath = if ($path) { $path } elseif ($existing -and $existing.Path) { $existing.Path } else { "" }
+
     $rule = [PSCustomObject]@{
-        Name          = $appName
-        DisplayName   = [System.IO.Path]::GetFileNameWithoutExtension($appName)
-        Path          = if ($path) { $path } elseif ($existing -and $existing.Path) { $existing.Path } else { "" }
+        Name          = $cleanName
+        DisplayName   = [System.IO.Path]::GetFileNameWithoutExtension($cleanName)
+        Path          = $finalPath
         Status        = $status # "Allowed", "Quota", "Blocked", "AutoBlocked"
         QuotaMB       = $quotaMB
         ConsumedBytes = $consumed
@@ -152,6 +192,25 @@ function Set-AppRule ([string]$appName, [string]$status, [double]$quotaMB = 0, [
     $script:AppRules | Add-Member -MemberType NoteProperty -Name $pKey -Value $rule -Force
     Save-AppRules $script:AppRules
     return $rule
+}
+
+function Remove-AppRule {
+    param (
+        [Parameter(Mandatory=$true)]
+        [Alias("Name")]
+        [string]$appName
+    )
+    if (-not $appName -or -not $script:AppRules) { return }
+    $pKey = $appName.ToLower().Trim()
+    $noExt = [System.IO.Path]::GetFileNameWithoutExtension($pKey)
+    $withExt = $noExt + ".exe"
+    $keys = @($pKey, $noExt, $withExt)
+    foreach ($k in $keys) {
+        if ($script:AppRules.PSObject.Properties[$k]) {
+            $script:AppRules.PSObject.Properties.Remove($k)
+        }
+    }
+    Save-AppRules $script:AppRules
 }
 
 function Format-Bytes ([double]$bytes) {

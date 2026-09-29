@@ -105,7 +105,8 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
                     }
                 } else {
                     # New untracked application detected!
-                    if (-not $isUnlimited -and $pPath) {
+                    # Only trigger interactive prompt if gatekeeper mode is explicitly enabled by the user
+                    if ($script:AppConfig.prompt_on_new_apps -and (-not $isUnlimited) -and $pPath) {
                         Request-AppNetworkPermission -appName $pName -path $pPath -pidNum $pidNum
                     }
                 }

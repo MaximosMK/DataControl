@@ -97,12 +97,15 @@ $elementNames = @(
     "BtnSidebarToggleWifi", "BtnSidebarExit", "SidebarSentryStatus", "SidebarAdapterLabel",
     "WorkspaceTitle", "WorkspaceSubtitle", "TxtLinkStatus", "BadgeLinkStatus", "TxtLiveSpeedTop", "ToastBanner", "ToastText",
     "BadgeNetworkProfile", "TxtNetworkProfileName", "BtnToggleNetworkProfile",
+    "BadgeGatekeeperHeader", "TxtGatekeeperHeader",
+    "BadgeGatekeeperMode", "TxtGatekeeperMode", "BtnToggleGatekeeper", "BtnTestPromptModal",
+    "TxtManualRulePath", "BtnBrowseManualRule", "BtnAddManualAllow", "BtnAddManualQuota", "BtnAddManualBlock",
     "ViewDashboard", "ViewLiveApps", "ViewAppRules", "ViewAppHistory", "ViewAnalytics", "ViewFirewall", "ViewSettings",
     "ComboAdapters", "TxtAdapterDetails", "TxtHeroSpeed", "BtnDisableWifiHero", "BtnEnableWifiHero",
     "TxtDailyPercent", "TxtDailyHero", "BarDailyFill", "TxtDailyRemaining", "ToggleDailyCutoff",
     "TxtMonthlyPercent", "TxtMonthlyHero", "BarMonthlyFill", "TxtMonthlyRemaining", "ToggleMonthlyCutoff",
     "ListDashboardTopApps", "TxtLiveSearch", "BtnRefreshLive", "ListLiveApps", "BtnBlockLiveApp", "TxtLiveBlockStatus",
-    "TxtAppRulesSearch", "BtnRefreshAppRules", "ListAppRules", "BtnRuleAllowFree", "BtnRuleSet500MB", "BtnRuleBlockApp",
+    "TxtAppRulesSearch", "BtnRefreshAppRules", "ListAppRules", "BtnRuleAllowFree", "BtnRuleSet500MB", "BtnRuleBlockApp", "BtnDeleteAppRule",
     "BtnResetAppHistory", "ListAppHistory", "BtnBlockHistoryApp", "TxtHistoryBlockStatus",
     "TxtAnalyticsToday", "TxtAnalyticsTodaySub", "TxtAnalyticsMonth", "TxtAnalyticsMonthSub",
     "TxtAnalyticsYear", "TxtAnalyticsYearSub", "BtnResetCurrentMonth", "ListDailyHistory",
@@ -290,6 +293,82 @@ if ($script:UI.BtnRefreshAppRules) {
     $script:UI.BtnRefreshAppRules.Add_Click({ Refresh-AppRulesList })
 }
 
+# Gatekeeper Mode Toggle & Test Controls
+if ($script:UI.BtnToggleGatekeeper) {
+    $script:UI.BtnToggleGatekeeper.Add_Click({
+        Toggle-GatekeeperMode
+    })
+}
+
+if ($script:UI.BtnTestPromptModal) {
+    $script:UI.BtnTestPromptModal.Add_Click({
+        Test-PromptWindowManual
+    })
+}
+
+# Manual Rule Creator Controls
+if ($script:UI.BtnBrowseManualRule) {
+    $script:UI.BtnBrowseManualRule.Add_Click({
+        $ofd = New-Object System.Windows.Forms.OpenFileDialog
+        $ofd.Filter = "Executable files (*.exe)|*.exe|All files (*.*)|*.*"
+        $ofd.Title = "Select Application to Add Rule"
+        $ofd.InitialDirectory = [Environment]::GetFolderPath("ProgramFiles")
+        if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $script:UI.TxtManualRulePath.Text = $ofd.FileName
+        }
+        $ofd.Dispose()
+    })
+}
+
+if ($script:UI.BtnAddManualAllow) {
+    $script:UI.BtnAddManualAllow.Add_Click({
+        $path = $script:UI.TxtManualRulePath.Text.Trim()
+        if (-not $path -or -not (Test-Path $path)) {
+            [System.Windows.MessageBox]::Show("Please enter or browse to a valid .exe path first.", "Invalid Executable", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+            return
+        }
+        $name = [System.IO.Path]::GetFileName($path)
+        Set-AppRule -appName $name -status "Allowed" -quotaMB 0 -path $path | Out-Null
+        Unblock-ApplicationRule -ruleName "DataControl-Block-$name"
+        $script:UI.TxtManualRulePath.Text = ""
+        Refresh-AppRulesList
+        Show-Toast "Rule created: $name granted Unlimited access." "#10B981"
+    })
+}
+
+if ($script:UI.BtnAddManualQuota) {
+    $script:UI.BtnAddManualQuota.Add_Click({
+        $path = $script:UI.TxtManualRulePath.Text.Trim()
+        if (-not $path -or -not (Test-Path $path)) {
+            [System.Windows.MessageBox]::Show("Please enter or browse to a valid .exe path first.", "Invalid Executable", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+            return
+        }
+        $name = [System.IO.Path]::GetFileName($path)
+        Set-AppRule -appName $name -status "Quota" -quotaMB 500 -path $path | Out-Null
+        Unblock-ApplicationRule -ruleName "DataControl-Block-$name"
+        $script:UI.TxtManualRulePath.Text = ""
+        Refresh-AppRulesList
+        Show-Toast "Rule created: $name assigned 500 MB Micro-Quota." "#38BDF8"
+    })
+}
+
+if ($script:UI.BtnAddManualBlock) {
+    $script:UI.BtnAddManualBlock.Add_Click({
+        $path = $script:UI.TxtManualRulePath.Text.Trim()
+        if (-not $path -or -not (Test-Path $path)) {
+            [System.Windows.MessageBox]::Show("Please enter or browse to a valid .exe path first.", "Invalid Executable", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
+            return
+        }
+        $name = [System.IO.Path]::GetFileName($path)
+        Block-ApplicationPath -appPath $path -description "Manually Blocked by User in App Rules" | Out-Null
+        Set-AppRule -appName $name -status "Blocked" -quotaMB 0 -path $path | Out-Null
+        $script:UI.TxtManualRulePath.Text = ""
+        Refresh-AppRulesList
+        Show-Toast "Rule created: $name outbound traffic blocked." "#F43F5E"
+    })
+}
+
+# App Rules List Selection Actions
 if ($script:UI.BtnRuleAllowFree) {
     $script:UI.BtnRuleAllowFree.Add_Click({
         $item = $script:UI.ListAppRules.SelectedItem
@@ -297,10 +376,10 @@ if ($script:UI.BtnRuleAllowFree) {
             [System.Windows.MessageBox]::Show("Please select an application rule from the list.", "No Selection", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
             return
         }
-        Set-AppRule -AppName $item.AppName -Permission "Allow" -QuotaMB 0 -AppPath $item.AppPath
-        Unblock-ApplicationRule -ruleName "DataControl-Block-$($item.AppName)"
+        Set-AppRule -appName $item.Name -status "Allowed" -quotaMB 0 -path $item.Path | Out-Null
+        Unblock-ApplicationRule -ruleName "DataControl-Block-$($item.Name)"
         Refresh-AppRulesList
-        Show-Toast "Rule updated: $($item.AppName) granted Unlimited access." "#10B981"
+        Show-Toast "Rule updated: $($item.Name) granted Unlimited access." "#10B981"
     })
 }
 
@@ -311,10 +390,10 @@ if ($script:UI.BtnRuleSet500MB) {
             [System.Windows.MessageBox]::Show("Please select an application rule from the list.", "No Selection", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
             return
         }
-        Set-AppRule -AppName $item.AppName -Permission "Quota" -QuotaMB 500 -AppPath $item.AppPath
-        Unblock-ApplicationRule -ruleName "DataControl-Block-$($item.AppName)"
+        Set-AppRule -appName $item.Name -status "Quota" -quotaMB 500 -path $item.Path | Out-Null
+        Unblock-ApplicationRule -ruleName "DataControl-Block-$($item.Name)"
         Refresh-AppRulesList
-        Show-Toast "Rule updated: $($item.AppName) assigned 500 MB Micro-Quota." "#38BDF8"
+        Show-Toast "Rule updated: $($item.Name) assigned 500 MB Micro-Quota." "#38BDF8"
     })
 }
 
@@ -325,12 +404,26 @@ if ($script:UI.BtnRuleBlockApp) {
             [System.Windows.MessageBox]::Show("Please select an application rule from the list.", "No Selection", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
             return
         }
-        Set-AppRule -AppName $item.AppName -Permission "Block" -QuotaMB 0 -AppPath $item.AppPath
-        if ($item.AppPath -and (Test-Path $item.AppPath)) {
-            Block-ApplicationPath -appPath $item.AppPath -description "Blocked by DataControl App Rule Sentry" | Out-Null
+        Set-AppRule -appName $item.Name -status "Blocked" -quotaMB 0 -path $item.Path | Out-Null
+        if ($item.Path -and (Test-Path $item.Path)) {
+            Block-ApplicationPath -appPath $item.Path -description "Blocked by DataControl App Rule Sentry" | Out-Null
         }
         Refresh-AppRulesList
-        Show-Toast "Rule updated: $($item.AppName) outbound traffic blocked." "#F43F5E"
+        Show-Toast "Rule updated: $($item.Name) outbound traffic blocked." "#F43F5E"
+    })
+}
+
+if ($script:UI.BtnDeleteAppRule) {
+    $script:UI.BtnDeleteAppRule.Add_Click({
+        $item = $script:UI.ListAppRules.SelectedItem
+        if (-not $item) {
+            [System.Windows.MessageBox]::Show("Please select an application rule from the list to delete.", "No Selection", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            return
+        }
+        Remove-AppRule -appName $item.Name
+        Unblock-ApplicationRule -ruleName "DataControl-Block-$($item.Name)"
+        Refresh-AppRulesList
+        Show-Toast "Rule removed for: $($item.Name)"
     })
 }
 
@@ -508,6 +601,7 @@ $Window.Add_Loaded({
     Refresh-AdapterList
     Refresh-AdapterStatus
     Refresh-NetworkProfileStatus
+    Refresh-GatekeeperStatus
     Update-NetworkMetrics
     Refresh-UsageDisplay
     Refresh-LiveAppsList

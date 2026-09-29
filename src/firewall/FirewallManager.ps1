@@ -30,10 +30,15 @@ function Block-ApplicationPath ([string]$appPath, [string]$description = "Blocke
 }
 
 function Unblock-ApplicationRule ([string]$ruleName) {
-    if (-not $ruleName) {
-        throw "Rule name cannot be empty."
+    if (-not $ruleName) { return }
+    $clean = $ruleName.Replace("DataControl-Block-", "")
+    $noExt = [System.IO.Path]::GetFileNameWithoutExtension($clean)
+    $variants = @($ruleName, "DataControl-Block-$noExt", "DataControl-Block-$noExt.exe") | Select-Object -Unique
+    foreach ($v in $variants) {
+        try {
+            Remove-NetFirewallRule -DisplayName $v -Confirm:$false -ErrorAction SilentlyContinue
+        } catch {}
     }
-    Remove-NetFirewallRule -DisplayName $ruleName -Confirm:$false -ErrorAction Stop
 }
 
 function Get-DataControlFirewallRules {

@@ -134,6 +134,65 @@ function Toggle-CurrentNetworkProfileMode {
     }
 }
 
+function Refresh-GatekeeperStatus {
+    $isEnabled = [bool]$script:AppConfig.prompt_on_new_apps
+
+    if ($isEnabled) {
+        if ($script:UI.BadgeGatekeeperMode) {
+            $script:UI.BadgeGatekeeperMode.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#064E3B"))
+        }
+        if ($script:UI.TxtGatekeeperMode) {
+            $script:UI.TxtGatekeeperMode.Text = "ON (Interactive Sentry Active)"
+            $script:UI.TxtGatekeeperMode.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+        }
+        if ($script:UI.BtnToggleGatekeeper) {
+            $script:UI.BtnToggleGatekeeper.Content = "⏸️ Turn OFF Prompts"
+            $script:UI.BtnToggleGatekeeper.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#334155"))
+        }
+        if ($script:UI.BadgeGatekeeperHeader) {
+            $script:UI.BadgeGatekeeperHeader.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#064E3B"))
+        }
+        if ($script:UI.TxtGatekeeperHeader) {
+            $script:UI.TxtGatekeeperHeader.Text = "Prompts: ON"
+            $script:UI.TxtGatekeeperHeader.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+        }
+    } else {
+        if ($script:UI.BadgeGatekeeperMode) {
+            $script:UI.BadgeGatekeeperMode.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#1E293B"))
+        }
+        if ($script:UI.TxtGatekeeperMode) {
+            $script:UI.TxtGatekeeperMode.Text = "OFF (Manual / Silent Mode)"
+            $script:UI.TxtGatekeeperMode.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#94A3B8"))
+        }
+        if ($script:UI.BtnToggleGatekeeper) {
+            $script:UI.BtnToggleGatekeeper.Content = "⚡ Turn ON Prompts"
+            $script:UI.BtnToggleGatekeeper.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#0284C7"))
+        }
+        if ($script:UI.BadgeGatekeeperHeader) {
+            $script:UI.BadgeGatekeeperHeader.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#1E293B"))
+        }
+        if ($script:UI.TxtGatekeeperHeader) {
+            $script:UI.TxtGatekeeperHeader.Text = "Prompts: OFF"
+            $script:UI.TxtGatekeeperHeader.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#94A3B8"))
+        }
+    }
+
+    if ($script:UI.ChkSettingPromptNewApps) {
+        $script:UI.ChkSettingPromptNewApps.IsChecked = $isEnabled
+    }
+}
+
+function Toggle-GatekeeperMode {
+    $script:AppConfig.prompt_on_new_apps = -not $script:AppConfig.prompt_on_new_apps
+    Save-AppConfig $script:AppConfig
+    Refresh-GatekeeperStatus
+    if ($script:AppConfig.prompt_on_new_apps) {
+        Show-Toast "Zero-Trust Gatekeeper ENABLED. Unrecognized outbound apps will trigger a 30s prompt." "#10B981"
+    } else {
+        Show-Toast "Zero-Trust Gatekeeper DISABLED. Apps will run quietly without popup alerts." "#38BDF8"
+    }
+}
+
 function Refresh-AdapterList {
     $script:UI.ComboAdapters.Items.Clear()
     try {

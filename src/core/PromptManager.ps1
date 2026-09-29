@@ -32,28 +32,30 @@ function Get-AppIconSource ([string]$exePath) {
     return $null
 }
 
-function Request-AppNetworkPermission ([string]$appName, [string]$path, [int]$pidNum) {
+function Request-AppNetworkPermission ([string]$appName, [string]$path, [int]$pidNum, [switch]$ForcePrompt) {
     if (-not $appName) { return }
-    $pKey = $appName.ToLower()
+    $pKey = $appName.ToLower().Trim()
 
-    # 1. Skip system core processes
-    if ($script:SystemWhitelist -contains $pKey) { return }
+    if (-not $ForcePrompt) {
+        # 1. Skip system core processes
+        if ($script:SystemWhitelist -contains $pKey) { return }
 
-    # 2. Skip if current connected network is Unlimited
-    if (Test-IsCurrentNetworkUnlimited) { return }
+        # 2. Skip if current connected network is Unlimited
+        if (Test-IsCurrentNetworkUnlimited) { return }
 
-    # 3. Skip if prompting disabled in config
-    if (-not $script:AppConfig.prompt_on_new_apps) { return }
+        # 3. Skip if prompting disabled in config
+        if (-not $script:AppConfig.prompt_on_new_apps) { return }
 
-    # 4. Check if rule already exists
-    $existing = Get-AppRule $appName
-    if ($existing) { return }
+        # 4. Check if rule already exists (either with or without .exe)
+        $existing = Get-AppRule $appName
+        if ($existing) { return }
+    }
 
     # 5. Avoid duplicate queueing
     foreach ($q in $script:PromptQueue) {
-        if ($q.Name.ToLower() -eq $pKey) { return }
+        if ($q.Name.ToLower().Trim() -eq $pKey) { return }
     }
-    if ($script:CurrentPromptItem -and $script:CurrentPromptItem.Name.ToLower() -eq $pKey) { return }
+    if ($script:CurrentPromptItem -and $script:CurrentPromptItem.Name.ToLower().Trim() -eq $pKey) { return }
 
     # Enqueue new permission request
     $item = @{
@@ -64,6 +66,15 @@ function Request-AppNetworkPermission ([string]$appName, [string]$path, [int]$pi
     $script:PromptQueue.Enqueue($item)
 
     Process-NextPromptQueue
+}
+
+function Test-PromptWindowManual {
+    $sampleItem = @{
+        Name = "DemoApp.exe"
+        Path = "C:\Windows\System32\cmd.exe"
+        PID  = 1234
+    }
+    Request-AppNetworkPermission -appName $sampleItem.Name -path $sampleItem.Path -pidNum $sampleItem.PID -ForcePrompt
 }
 
 function Process-NextPromptQueue {
@@ -111,7 +122,7 @@ function Show-PromptWindow ($item) {
                     </Grid.ColumnDefinitions>
                     <Image x:Name="AppIcon" Grid.Column="0" Width="32" Height="32" VerticalAlignment="Center" HorizontalAlignment="Left"/>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,0,0">
-                        <TextBlock x:Name="AppTitle" Text="Google Chrome" Foreground="#F8FAFC" FontWeight="Bold" FontSize="14"/>
+                        <TextBlock x:Name="AppTitle" Text="Application" Foreground="#F8FAFC" FontWeight="Bold" FontSize="14"/>
                         <TextBlock x:Name="AppPath" Text="C:\Program Files\..." Foreground="#64748B" FontSize="10.5" TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
                 </Grid>
@@ -194,10 +205,14 @@ function Show-PromptWindow ($item) {
     $btnQuota = $pWin.FindName("BtnAllowQuota")
     $btnBlock = $pWin.FindName("BtnBlockOutbound")
 
-    $appTitle.Text = [System.IO.Path]::GetFileNameWithoutExtension($item.Name)
-    $appPathText.Text = if ($item.Path) { $item.Path } else { "PID: $($item.PID)" }
+    $boundName = [string]$item.Name
+    $boundPath = [string]$item.Path
+    $boundPID  = [int]$item.PID
 
-    $iconSrc = Get-AppIconSource $item.Path
+    $appTitle.Text = [System.IO.Path]::GetFileNameWithoutExtension($boundName)
+    $appPathText.Text = if ($boundPath) { $boundPath } else { "PID: $boundPID" }
+
+    $iconSrc = Get-AppIconSource $boundPath
     if ($iconSrc) { $appIconImg.Source = $iconSrc }
 
     $timeout = [int]$script:AppConfig.prompt_timeout_seconds
@@ -208,25 +223,41 @@ function Show-PromptWindow ($item) {
 
     # Button: Allow Unlimited
     $btnAllow.Add_Click({
-        Set-AppRule -appName $item.Name -status "Allowed" -quotaMB 0 -path $item.Path | Out-Null
+        $n = if ($boundName) { $boundName } elseif ($script:CurrentPromptItem) { $script:CurrentPromptItem.Name } else { "" }
+        $p = if ($boundPath) { $boundPath } elseif ($script:CurrentPromptItem) { $script:CurrentPromptItem.Path } else { "" }
+        if ($n) {
+            Set-AppRule -appName $n -status "Allowed" -quotaMB 0 -path $p | Out-Null
+            Unblock-ApplicationRule -ruleName "DataControl-Block-$n"
+            try { if (Get-Command Show-Toast -ErrorAction SilentlyContinue) { Show-Toast "Permitted unlimited outbound access for: $n" "#10B981" } } catch {}
+        }
         Close-ActivePrompt
-    })
+    }.GetNewClosure())
 
     # Button: Allow with Quota (Default 500 MB)
     $btnQuota.Add_Click({
-        Set-AppRule -appName $item.Name -status "Quota" -quotaMB 500 -path $item.Path | Out-Null
-        Show-Toast "Google Chrome permitted with a 500 MB quota." "#0284C7"
+        $n = if ($boundName) { $boundName } elseif ($script:CurrentPromptItem) { $script:CurrentPromptItem.Name } else { "" }
+        $p = if ($boundPath) { $boundPath } elseif ($script:CurrentPromptItem) { $script:CurrentPromptItem.Path } else { "" }
+        if ($n) {
+            Set-AppRule -appName $n -status "Quota" -quotaMB 500 -path $p | Out-Null
+            Unblock-ApplicationRule -ruleName "DataControl-Block-$n"
+            try { if (Get-Command Show-Toast -ErrorAction SilentlyContinue) { Show-Toast "Permitted $n with a 500 MB micro-quota." "#0284C7" } } catch {}
+        }
         Close-ActivePrompt
-    })
+    }.GetNewClosure())
 
     # Button: Block Outbound
     $btnBlock.Add_Click({
-        if ($item.Path -and (Test-Path $item.Path)) {
-            Block-ApplicationPath -appPath $item.Path -description "Blocked by User Prompt" | Out-Null
+        $n = if ($boundName) { $boundName } elseif ($script:CurrentPromptItem) { $script:CurrentPromptItem.Name } else { "" }
+        $p = if ($boundPath) { $boundPath } elseif ($script:CurrentPromptItem) { $script:CurrentPromptItem.Path } else { "" }
+        if ($n) {
+            if ($p -and (Test-Path $p)) {
+                Block-ApplicationPath -appPath $p -description "Blocked by User Prompt" | Out-Null
+            }
+            Set-AppRule -appName $n -status "Blocked" -quotaMB 0 -path $p | Out-Null
+            try { if (Get-Command Show-Toast -ErrorAction SilentlyContinue) { Show-Toast "Blocked outbound access for: $n" "#F43F5E" } } catch {}
         }
-        Set-AppRule -appName $item.Name -status "Blocked" -quotaMB 0 -path $item.Path | Out-Null
         Close-ActivePrompt
-    })
+    }.GetNewClosure())
 
     # 30-Second Countdown Timer
     $script:PromptCountdownTimer = New-Object System.Windows.Threading.DispatcherTimer
@@ -239,24 +270,28 @@ function Show-PromptWindow ($item) {
         $barCountdown.Value = $script:RemainingSeconds
 
         if ($script:RemainingSeconds -le 0) {
-            # Auto-Block Action on Expiration
-            if ($item.Path -and (Test-Path $item.Path)) {
-                try {
-                    Block-ApplicationPath -appPath $item.Path -description "Auto-Blocked (Prompt Expired - 30s Timeout)" | Out-Null
-                } catch {}
-            }
-            Set-AppRule -appName $item.Name -status "AutoBlocked" -quotaMB 0 -path $item.Path | Out-Null
+            $n = if ($boundName) { $boundName } elseif ($script:CurrentPromptItem) { $script:CurrentPromptItem.Name } else { "" }
+            $p = if ($boundPath) { $boundPath } elseif ($script:CurrentPromptItem) { $script:CurrentPromptItem.Path } else { "" }
 
-            $NotifyIcon.ShowBalloonTip(
-                4000,
-                "DataControl: Auto-Blocked $($item.Name)",
-                "Outbound access blocked after 30-second prompt expiration. Click to review in dashboard.",
-                [System.Windows.Forms.ToolTipIcon]::Warning
-            )
+            if ($n) {
+                if ($p -and (Test-Path $p)) {
+                    try {
+                        Block-ApplicationPath -appPath $p -description "Auto-Blocked (Prompt Expired - 30s Timeout)" | Out-Null
+                    } catch {}
+                }
+                Set-AppRule -appName $n -status "AutoBlocked" -quotaMB 0 -path $p | Out-Null
+
+                $NotifyIcon.ShowBalloonTip(
+                    4000,
+                    "DataControl: Auto-Blocked $n",
+                    "Outbound access blocked after 30-second prompt expiration.",
+                    [System.Windows.Forms.ToolTipIcon]::Warning
+                )
+            }
 
             Close-ActivePrompt
         }
-    })
+    }.GetNewClosure())
 
     $script:PromptCountdownTimer.Start()
     $pWin.Show()
