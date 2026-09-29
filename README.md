@@ -1,6 +1,6 @@
-# DataControl: Windows 11 Data Control System (v2.0)
+# DataControl: Windows 11 Data Control System (v3.5 Ultra-Modern WPF)
 
-An autonomous, lightweight network metering, persistent usage tracking, and automated shutoff enforcement system tailored for Windows 10 and Windows 11.
+An autonomous, ultra-modern network metering, persistent usage tracking, and automated cutoff enforcement system tailored for Windows 10 and Windows 11.
 
 ---
 
@@ -12,15 +12,24 @@ DataControl provides **dual daily and monthly quota enforcement**, **live per-ap
 
 ---
 
-## ✨ Key Features
+## ✨ Key Features & UX Innovations
 
-- **Dual Daily & Monthly Quotas**: Independent controls for daily allowances (e.g. 2.0 GB) and monthly limits (e.g. 16.0 GB) with individual progress gauges, soft warning alerts, and automated cutoffs.
-- **Live Application Sentry**: Real-time monitoring of all active network processes (e.g. Chrome, Windows Update / `svchost.exe`, Steam, Discord). Displays live transfer speeds (`KB/s` / `MB/s`), session totals, active socket counts, and executable paths.
-- **Direct One-Click App Firewall Blocking**: Spot an unexpected application consuming your bandwidth? Click **"🚫 Block Selected App in Firewall"** directly from the live list to instantly isolate it with a Windows Defender Outbound Firewall rule.
-- **Application Consumption Leaderboard**: Persistent historical tracking (`app_history.json`) of data consumed by each application over time, making it easy to identify background bandwidth hogs.
+- **Ultra-Modern Windows 11 Fluent 2 UI**: Hardware-accelerated WPF vector graphics with deep obsidian theme, rounded card containers, crisp Segoe UI typography, and native DWM dark title bar.
+- **Desktop-Friendly & Fully Responsive**:
+  - Resizable and maximizable window with fluid proportional grids (`*`-sizing) that expand beautifully on 1080p, 1440p, and 4K displays.
+  - Smooth pixel-based mouse-wheel scrolling on every workspace via custom minimalist dark scrollbars.
+- **Minimize-to-Tray Background Resident**:
+  - Closing the window (`[X]`) hides the interface and keeps the monitoring sentry running seamlessly in the Windows Notification Area.
+  - Left-clicking or double-clicking the tray icon immediately restores the dashboard.
+  - Real-time tray tooltip updates dynamically with today's quota usage, remaining data, and active network interface.
+  - Rich tray context menu provides one-click access to the dashboard, quick adapter toggle, and full exit.
+- **Modern Pill Toggle Switches**: Replaces dated checkbox boxes with sleek, sliding iOS/Fluent-style pill toggle switches.
+- **Dual Daily & Monthly Quotas**: Independent controls for daily allowances (e.g. 2.0 GB) and monthly limits (e.g. 16.0 GB) with dynamic linear gradient meters (Sky Blue ➔ Amber ➔ Rose Red), soft warning alerts, and automated cutoffs.
+- **Live Application Sentry**: Real-time monitoring of all active network processes (e.g. Chrome, Windows Update, Steam, Discord). Displays live transfer speeds (`KB/s` / `MB/s`), session totals, active socket counts, and executable paths.
+- **Direct One-Click App Firewall Blocking**: Spot an unexpected application consuming your bandwidth? Click **"🚫 Block Selected App in Firewall"** directly from the live or historical list to instantly isolate it with a Windows Defender Outbound Firewall rule.
+- **Application Consumption Leaderboard**: Persistent historical tracking (`app_history.json`) of data consumed by each application across reboots.
 - **Reboot- & Disconnect-Resilient Delta Engine**: Tracks interface byte statistics directly via `Get-NetAdapterStatistics`. Detects counter rollovers, interface disconnects, and system reboots, preventing false spikes or data drops.
 - **Data Privacy by Design**: All personal usage metrics, daily logs, and configuration remain exclusively on your local machine (`.gitignore` protected) and are never shared to public GitHub repositories.
-- **Windows System Tray & Background Sentry**: Runs silently in the Windows Notification Area. Double-clicking the tray icon restores the dashboard, while clicking the minimize button sends it back to the tray.
 - **Windows Startup Integration**: Seamlessly configure DataControl to run automatically at user logon with highest Administrator privileges via Windows Task Scheduler (no repeated UAC prompts).
 - **Billing Cycle Reset**: Reset monthly quota counters with a single click and confirmation modal when your mobile carrier or ISP billing cycle renews.
 - **Native GUI Launcher**: Includes compiled native executable [`DataControl.exe`](file:///d:/web/dataControle/DataControl.exe) with embedded custom sentry shield icon and zero console flash.
@@ -32,28 +41,32 @@ DataControl provides **dual daily and monthly quota enforcement**, **live per-ap
 | Component | Minimum Requirement | Recommended |
 |---|---|---|
 | **Operating System** | Windows 10 (Build 19041+) | Windows 11 (22H2 or higher) |
-| **PowerShell** | Windows PowerShell 5.1 | PowerShell 7+ or 5.1 |
+| **Framework** | .NET Framework 4.7.2+ (WPF, XAML) | Built-in on Windows 10/11 |
+| **PowerShell** | Windows PowerShell 5.1 | Built-in on Windows 10/11 |
 | **Privileges** | Administrator (Required for NetAdapter & Firewall cmdlets) | UAC Auto-Elevation Supported |
-| **Dependencies** | .NET Framework 4.7.2+ (`System.Windows.Forms`, `System.Drawing`) | Pre-installed on Windows 10/11 |
 
 ---
 
-## 🚀 Running the Program & Background Execution
+## 🚀 Running the Program & Desktop Workflow
 
-### 1. Run via Desktop or Start Menu (Recommended)
+### 1. Launch via Desktop or Start Menu (Recommended)
 Double-click the **DataControl** shortcut on your Desktop or open the Windows Start Menu and type **DataControl**.
 - Launches instantly via native [`DataControl.exe`](file:///d:/web/dataControle/DataControl.exe) with **zero console window flash**.
 - Sits in the **Windows System Tray** with the custom shield icon.
 
-### 2. Run from PowerShell / Terminal
+### 2. Launch from PowerShell / Terminal
 Open PowerShell as Administrator (or let the script self-elevate) and run:
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\DataControl.ps1
 ```
 
-### 3. Minimize to Background
-Whenever DataControl is open, clicking the **Minimize (`_`)** button automatically hides the window and sends it directly to the system tray so your taskbar stays clutter-free. Double-click the shield tray icon or right-click ➔ **Open DataControl** anytime to bring it back.
+### 3. Background Resident & System Tray
+- Whenever you close the window (`[X]`), DataControl automatically hides and stays active in the background as a resident sentry.
+- Look for the shield icon in your taskbar notification area.
+- Hover over the tray icon to see a real-time tooltip with your current data consumption.
+- Left-click or double-click the icon anytime to bring the window back to the front.
+- To completely exit the application, right-click the tray icon and select **Exit DataControl** (or click **Exit DataControl** in the sidebar).
 
 ---
 
@@ -64,11 +77,10 @@ Because DataControl requires Administrator privileges to control network adapter
 DataControl uses **Windows Task Scheduler with Highest Privileges** to run automatically at logon completely silently without any UAC prompts.
 
 ### Method A: Through the Application GUI (Easiest)
-1. Open DataControl.
-2. In **Tab 1 (Dashboard & Quotas)**, check the box:
-   ☑ **Run at Windows Startup (Runs silently in background with highest Administrator privileges)**
-3. Click **Save All Quota Settings**.
-*(Alternatively, right-click the tray icon and toggle **Start with Windows**).*
+1. Open DataControl and navigate to **⚙️ Settings**.
+2. Toggle the switch:
+   ☑ **Start with Windows Logon (Runs silently in background with highest Administrator privileges)**
+3. Click **💾 Save All Quota & System Settings**.
 
 ### Method B: Via PowerShell Helper Script
 To register the startup task via command line:
@@ -83,40 +95,46 @@ powershell.exe -ExecutionPolicy Bypass -File .\Unregister-StartupTask.ps1
 
 ---
 
-## 🖥️ User Interface Overview (5 Dedicated Workspaces)
+## 🖥️ Workspaces Overview
 
-The application features a modern 780x720 Windows 11 Slate Dark interface organized into five workspaces:
+The application features a modern Windows 11 Fluent 2 Obsidian interface organized into 6 dedicated workspaces accessible via the left navigation rail:
 
-### 1. Dashboard & Quotas
+### 1. 📊 Dashboard
 - **Target Network Adapter**: Select active wireless or wired adapters (`Wi-Fi`, `Ethernet`, etc.).
 - **Link State & Real-Time Speed**: Displays link status (`Connected`, `Disabled`, etc.) and live transfer speeds (`KB/s` / `MB/s`).
-- **Daily Quota Card**: Visual progress gauge and human-readable counter for today's data allowance.
-- **Monthly Quota Card**: Visual progress gauge and counter for monthly allowance.
-- **Dual Quota Controls**: Set Daily Limit (GB), Daily Warning (GB), Monthly Limit (GB), and Monthly Warning (GB).
-- **Automated Cutoff Toggles**: Separate switches for daily shutoff and monthly shutoff.
-- **Manual Hardware Overrides**: Immediate "Disable Wi-Fi" and "Enable Wi-Fi" buttons.
+- **Daily Quota Card**: Visual gradient progress meter, used vs. limit readouts, remaining data counter, and auto-cutoff toggle.
+- **Monthly Quota Card**: Visual gradient progress meter, monthly usage, remaining data counter, and auto-cutoff toggle.
+- **Top Live Consumers Preview**: Mini-leaderboard showing top active bandwidth-consuming processes right on the dashboard.
+- **Hardware Controls**: Instant "Disable Adapter" and "Enable Adapter" buttons.
 
-### 2. Live App Sentry
+### 2. ⚡ Live Apps
 - **Active Process Table**: Lists all running applications with open TCP/UDP sockets.
 - **Real-Time Throughput**: Shows live speed (`KB/s` / `MB/s`) and session data consumed.
 - **Live Search Filter**: Quickly find specific apps (e.g., `update`, `chrome`, `steam`).
 - **One-Click Firewall Block**: Select any app and click **"🚫 Block Selected App in Firewall"** to isolate it immediately.
 
-### 3. App Usage History
+### 3. 📈 App History
 - **Consumption Leaderboard**: Displays top bandwidth-consuming applications over time.
 - **Historical Records**: Total data consumed and last active timestamps per application.
 - **Direct Block Action**: Block high-bandwidth background apps directly from the historical list.
 - **Reset App History**: Clear application tracking stats with a single click.
 
-### 4. Global Analytics
+### 4. 📅 Analytics
 - **Summary Cards**: Quick-glance totals for **Today**, **This Month**, and **This Year**.
 - **Daily Usage Log**: Detailed list of data consumed for each recorded calendar date.
 - **Billing Cycle Synchronization**: "Reset Current Month" action button with confirmation dialog for carrier renewal dates.
 
-### 5. Firewall Blocker
+### 5. 🛡️ Firewall Rules
 - **Executable Picker**: Select any `.exe` using the Windows file dialog.
 - **Block Outbound Access**: Automatically applies an outbound block rule in Windows Defender Firewall (`DataControl-Block-[AppName]`).
 - **Active Rules Management**: Displays all active DataControl rules with an "Unblock Application" button to cleanly remove them.
+
+### 6. ⚙️ Settings
+- Editable Daily Quota (GB) and Daily Warning Threshold (GB).
+- Editable Monthly Quota (GB) and Monthly Warning Threshold (GB).
+- Auto-disconnect toggle switches for daily and monthly limits.
+- Background polling frequency configuration.
+- Start with Windows logon integration toggle.
 
 ---
 

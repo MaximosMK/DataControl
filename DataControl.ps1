@@ -1,9 +1,12 @@
 <#
 .SYNOPSIS
-    DataControl - Windows 11 Data Control System (v2.0)
+    DataControl - Windows 11 Data Control System (v3.5 Ultra-Modern WPF)
 .DESCRIPTION
     Autonomous network metering, dual daily/monthly quota enforcement, live per-application
     bandwidth tracking, application consumption history, and Windows Defender Firewall blocker.
+    Features: Windows 11 Fluent 2 Dark Mode, WPF hardware-accelerated vector UI, fully responsive
+    resizable/maximizable layout, smooth mouse-wheel scrolling, modern pill toggle switches,
+    custom gradient progress bars, minimize-to-tray on close, and elevated background execution.
 #>
 param (
     [switch]$StartMinimized
@@ -25,12 +28,13 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     exit
 }
 
-# Load Required .NET Assemblies
+# Load Required .NET Assemblies (WPF + WinForms Tray)
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName WindowsBase
+Add-Type -AssemblyName System.Xaml
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-
-[System.Windows.Forms.Application]::EnableVisualStyles()
-[System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
 
 # Paths Configuration
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -41,13 +45,13 @@ $AppHistoryFile = Join-Path $AppDir "app_history.json"
 $IconPath = Join-Path $AppDir "DataControl.ico"
 $TaskName = "DataControl_Monitor"
 
-# Load Native Process IO Tracker
-$csharpTracker = @'
+# Load Native Win32 API Helpers (Process IO Tracking & Windows 11 DWM Aesthetics)
+$csharpNative = @'
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-public static class Win32ProcTracker {
+public static class Win11Native {
     [StructLayout(LayoutKind.Sequential)]
     public struct IO_COUNTERS {
         public ulong ReadOperationCount;
@@ -72,9 +76,25 @@ public static class Win32ProcTracker {
         } catch {}
         return 0;
     }
+
+    [DllImport("dwmapi.dll", PreserveSig = true)]
+    public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
+    public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    public const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    public const int DWMWCP_ROUND = 2;
+
+    public static void ApplyWin11Aesthetics(IntPtr hwnd) {
+        try {
+            int dark = 1;
+            DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
+            int round = DWMWCP_ROUND;
+            DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
+        } catch {}
+    }
 }
 '@
-Add-Type -TypeDefinition $csharpTracker -ErrorAction SilentlyContinue
+Add-Type -TypeDefinition $csharpNative -ErrorAction SilentlyContinue
 
 # ==============================================================================
 # Helper Functions: Config & History Management
@@ -83,7 +103,6 @@ function Load-AppConfig {
     if (Test-Path $ConfigFile) {
         try {
             $raw = Get-Content -Path $ConfigFile -Raw -Encoding UTF8 | ConvertFrom-Json
-            # Set defaults for newly added fields
             if (-not $raw.daily_limit_gb) { $raw | Add-Member -MemberType NoteProperty -Name "daily_limit_gb" -Value 2.0 -Force }
             if (-not $raw.daily_warning_gb) { $raw | Add-Member -MemberType NoteProperty -Name "daily_warning_gb" -Value 1.7 -Force }
             if ($null -eq $raw.auto_disconnect_daily) { $raw | Add-Member -MemberType NoteProperty -Name "auto_disconnect_daily" -Value $true -Force }
@@ -165,7 +184,6 @@ function Format-Bytes ([double]$bytes) {
     }
 }
 
-# Scheduled Task Management
 function Test-StartupTaskEnabled {
     $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
     return ($null -ne $task)
@@ -225,17 +243,14 @@ $script:DailyLimitNotified = $false
 $script:MonthlyWarningNotified = $false
 $script:MonthlyLimitNotified = $false
 $script:CurrentThroughputBytesPerSec = 0.0
-
-# Per-Process Tracking State Cache (PID -> Stats)
+$script:AllowRealExit = $false
 $script:ProcStateCache = @{}
 
 # ==============================================================================
-# Network Metering Engine (Overall & Per-Process)
+# Network Metering Engine
 # ==============================================================================
 function Update-NetworkMetrics {
-    param (
-        [string]$AdapterName
-    )
+    param ([string]$AdapterName)
 
     if (-not $AdapterName) {
         $AdapterName = $script:AppConfig.target_adapter
@@ -301,7 +316,6 @@ function Update-NetworkMetrics {
         }
     } catch {}
 
-    # Sample Per-Process Bandwidth
     Update-AppProcessMetrics -ElapsedSeconds $elapsedSec
 }
 
@@ -324,8 +338,7 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
             try { $pPath = $p.Path } catch {}
 
             $connCount = ($tcpConns | Where-Object { $_.OwningProcess -eq $pidNum }).Count + ($udpConns | Where-Object { $_.OwningProcess -eq $pidNum }).Count
-
-            $rawBytes = [Win32ProcTracker]::GetProcessBytes($pidNum)
+            $rawBytes = [Win11Native]::GetProcessBytes($pidNum)
             $prevBytes = 0
             $sessionBytes = 0.0
             $speedBps = 0.0
@@ -353,7 +366,6 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
                 LastSeen     = $nowStr
             }
 
-            # Update App History
             if ($pName) {
                 $curHistTotal = 0.0
                 if ($script:AppHistory.PSObject.Properties[$pName]) {
@@ -381,1214 +393,6 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
             Save-AppHistory $script:AppHistory
         }
     } catch {}
-}
-
-# ==============================================================================
-# Step 2: Modern Responsive Windows 11 Slate Dark Theme Styling
-# ==============================================================================
-
-# Palette Definition
-$ColorBgDark     = [System.Drawing.ColorTranslator]::FromHtml("#0B0F19") # Deep slate/black
-$ColorPanelBg    = [System.Drawing.ColorTranslator]::FromHtml("#111827") # Slate 900
-$ColorCardInner  = [System.Drawing.ColorTranslator]::FromHtml("#1F2937") # Slate 800
-$ColorCardBorder = [System.Drawing.ColorTranslator]::FromHtml("#374151") # Slate 700
-$ColorAccent     = [System.Drawing.ColorTranslator]::FromHtml("#38BDF8") # Sky 400
-$ColorAccentDark = [System.Drawing.ColorTranslator]::FromHtml("#0284C7") # Sky 600
-$ColorTextLight  = [System.Drawing.ColorTranslator]::FromHtml("#F9FAFB") # Slate 50
-$ColorTextMuted  = [System.Drawing.ColorTranslator]::FromHtml("#9CA3AF") # Slate 400
-$ColorSuccess    = [System.Drawing.ColorTranslator]::FromHtml("#34D399") # Emerald 400
-$ColorWarning    = [System.Drawing.ColorTranslator]::FromHtml("#FBBF24") # Amber 400
-$ColorDanger     = [System.Drawing.ColorTranslator]::FromHtml("#F87171") # Rose 400
-$ColorInputBg    = [System.Drawing.ColorTranslator]::FromHtml("#0B0F19") # Deep dark input
-
-$FontHeader = New-Object System.Drawing.Font("Segoe UI", 13.5, [System.Drawing.FontStyle]::Bold)
-$FontSub    = New-Object System.Drawing.Font("Segoe UI", 10.5, [System.Drawing.FontStyle]::Bold)
-$FontMetric = New-Object System.Drawing.Font("Segoe UI", 16, [System.Drawing.FontStyle]::Bold)
-$FontBody   = New-Object System.Drawing.Font("Segoe UI", 9.5, [System.Drawing.FontStyle]::Regular)
-$FontSmall  = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.FontStyle]::Regular)
-
-# Main Form (Responsive 780x720)
-$Form = New-Object System.Windows.Forms.Form
-$Form.Text = "DataControl - Windows 11 Data Control System"
-$Form.ClientSize = New-Object System.Drawing.Size(780, 720)
-$Form.MinimumSize = New-Object System.Drawing.Size(780, 720)
-$Form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
-$Form.BackColor = $ColorBgDark
-$Form.ForeColor = $ColorTextLight
-$Form.Font = $FontBody
-
-# Load Custom Icon
-$AppCustomIcon = $null
-if (Test-Path $IconPath) {
-    try {
-        $AppCustomIcon = New-Object System.Drawing.Icon($IconPath)
-        $Form.Icon = $AppCustomIcon
-    } catch {}
-}
-
-# System Tray Notification Icon
-$NotifyIcon = New-Object System.Windows.Forms.NotifyIcon
-if ($AppCustomIcon) {
-    $NotifyIcon.Icon = $AppCustomIcon
-} else {
-    $NotifyIcon.Icon = [System.Drawing.SystemIcons]::Shield
-}
-$NotifyIcon.Text = "DataControl - Sentry Active"
-$NotifyIcon.Visible = $true
-
-# Context Menu for Tray
-$TrayMenu = New-Object System.Windows.Forms.ContextMenuStrip
-
-$TrayMenuItemShow = $TrayMenu.Items.Add("Open DataControl")
-$TrayMenuItemShow.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
-$TrayMenuItemShow.Add_Click({
-    $Form.Show()
-    $Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
-    $Form.ShowInTaskbar = $true
-    $Form.Activate()
-})
-
-$TrayMenu.Items.Add("-") | Out-Null
-
-$TrayMenuItemStartup = $TrayMenu.Items.Add("Start with Windows (Background)")
-$TrayMenuItemStartup.CheckOnClick = $true
-$TrayMenuItemStartup.Checked = Test-StartupTaskEnabled
-$TrayMenuItemStartup.Add_Click({
-    $newState = $TrayMenuItemStartup.Checked
-    Set-StartupTaskEnabled $newState | Out-Null
-    $ChkStartWithWindows.Checked = $newState
-})
-
-$TrayMenuItemToggleWifi = $TrayMenu.Items.Add("Toggle Wi-Fi Interface")
-$TrayMenuItemToggleWifi.Add_Click({
-    $target = [string]$script:AppConfig.target_adapter
-    try {
-        $cur = Get-NetAdapter -Name $target -ErrorAction SilentlyContinue
-        if ($cur.Status -eq "Up") {
-            Disable-NetAdapter -Name $target -Confirm:$false -ErrorAction Stop
-        } else {
-            Enable-NetAdapter -Name $target -Confirm:$false -ErrorAction Stop
-        }
-        Refresh-AdapterStatusLabel
-    } catch {}
-})
-
-$TrayMenu.Items.Add("-") | Out-Null
-
-$TrayMenuItemExit = $TrayMenu.Items.Add("Exit DataControl")
-$TrayMenuItemExit.Add_Click({
-    $Form.Close()
-})
-$NotifyIcon.ContextMenuStrip = $TrayMenu
-
-$NotifyIcon.Add_DoubleClick({
-    $Form.Show()
-    $Form.WindowState = [System.Windows.Forms.FormWindowState]::Normal
-    $Form.ShowInTaskbar = $true
-    $Form.Activate()
-})
-
-# Minimize to Tray Handler
-$Form.Add_Resize({
-    if ($Form.WindowState -eq [System.Windows.Forms.FormWindowState]::Minimized) {
-        $Form.Hide()
-        $Form.ShowInTaskbar = $false
-    }
-})
-
-# Top Header Banner
-$HeaderPanel = New-Object System.Windows.Forms.Panel
-$HeaderPanel.Dock = [System.Windows.Forms.DockStyle]::Top
-$HeaderPanel.Height = 60
-$HeaderPanel.BackColor = $ColorPanelBg
-
-$AppTitleLabel = New-Object System.Windows.Forms.Label
-$AppTitleLabel.Text = "DATACONTROL"
-$AppTitleLabel.Font = $FontHeader
-$AppTitleLabel.ForeColor = $ColorAccent
-$AppTitleLabel.Location = New-Object System.Drawing.Point(18, 14)
-$AppTitleLabel.AutoSize = $true
-
-$AppSubtitleLabel = New-Object System.Windows.Forms.Label
-$AppSubtitleLabel.Text = "Dual Quota Sentry & Per-App Bandwidth Blocker"
-$AppSubtitleLabel.Font = $FontSmall
-$AppSubtitleLabel.ForeColor = $ColorTextMuted
-$AppSubtitleLabel.Location = New-Object System.Drawing.Point(176, 21)
-$AppSubtitleLabel.AutoSize = $true
-
-$HeaderStatusBadge = New-Object System.Windows.Forms.Label
-$HeaderStatusBadge.Text = "● ACTIVE"
-$HeaderStatusBadge.Font = $FontSub
-$HeaderStatusBadge.ForeColor = $ColorSuccess
-$HeaderStatusBadge.Anchor = [System.Windows.Forms.AnchorStyles]::Top -bor [System.Windows.Forms.AnchorStyles]::Right
-$HeaderStatusBadge.Location = New-Object System.Drawing.Point(660, 18)
-$HeaderStatusBadge.AutoSize = $true
-
-$HeaderPanel.Controls.AddRange(@($AppTitleLabel, $AppSubtitleLabel, $HeaderStatusBadge))
-$Form.Controls.Add($HeaderPanel)
-
-# Tab Control
-$TabControl = New-Object System.Windows.Forms.TabControl
-$TabControl.Dock = [System.Windows.Forms.DockStyle]::Fill
-$TabControl.Font = $FontBody
-
-# Setup 5 Dedicated Tabs
-$Tab1 = New-Object System.Windows.Forms.TabPage
-$Tab1.Text = " Dashboard & Quotas "
-$Tab1.BackColor = $ColorBgDark
-
-$Tab2 = New-Object System.Windows.Forms.TabPage
-$Tab2.Text = " Live App Sentry "
-$Tab2.BackColor = $ColorBgDark
-
-$Tab3 = New-Object System.Windows.Forms.TabPage
-$Tab3.Text = " App Usage History "
-$Tab3.BackColor = $ColorBgDark
-
-$Tab4 = New-Object System.Windows.Forms.TabPage
-$Tab4.Text = " Global Analytics "
-$Tab4.BackColor = $ColorBgDark
-
-$Tab5 = New-Object System.Windows.Forms.TabPage
-$Tab5.Text = " Firewall Blocker "
-$Tab5.BackColor = $ColorBgDark
-
-$TabControl.TabPages.AddRange(@($Tab1, $Tab2, $Tab3, $Tab4, $Tab5))
-$Form.Controls.Add($TabControl)
-# Ensure Header stays on top
-$HeaderPanel.BringToFront()
-
-# ==============================================================================
-# TAB 1: Dashboard & Live Controls (Daily & Monthly Dual Control)
-# ==============================================================================
-
-# Card 1: Live Status & Interface Selection
-$CardStatus = New-Object System.Windows.Forms.Panel
-$CardStatus.Location = New-Object System.Drawing.Point(14, 12)
-$CardStatus.Size = New-Object System.Drawing.Size(738, 80)
-$CardStatus.BackColor = $ColorPanelBg
-$CardStatus.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblAdapter = New-Object System.Windows.Forms.Label
-$LblAdapter.Text = "Target Adapter:"
-$LblAdapter.Font = $FontSub
-$LblAdapter.ForeColor = $ColorTextLight
-$LblAdapter.Location = New-Object System.Drawing.Point(14, 10)
-$LblAdapter.AutoSize = $true
-
-$ComboAdapters = New-Object System.Windows.Forms.ComboBox
-$ComboAdapters.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
-$ComboAdapters.Location = New-Object System.Drawing.Point(16, 36)
-$ComboAdapters.Size = New-Object System.Drawing.Size(220, 26)
-$ComboAdapters.BackColor = $ColorInputBg
-$ComboAdapters.ForeColor = $ColorTextLight
-$ComboAdapters.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-
-$LblStateTitle = New-Object System.Windows.Forms.Label
-$LblStateTitle.Text = "Link State:"
-$LblStateTitle.Font = $FontSub
-$LblStateTitle.ForeColor = $ColorTextLight
-$LblStateTitle.Location = New-Object System.Drawing.Point(280, 10)
-$LblStateTitle.AutoSize = $true
-
-$LblStateValue = New-Object System.Windows.Forms.Label
-$LblStateValue.Text = "Detecting..."
-$LblStateValue.Font = $FontSub
-$LblStateValue.ForeColor = $ColorSuccess
-$LblStateValue.Location = New-Object System.Drawing.Point(280, 37)
-$LblStateValue.AutoSize = $true
-
-$LblLiveSpeedTitle = New-Object System.Windows.Forms.Label
-$LblLiveSpeedTitle.Text = "Total Speed:"
-$LblLiveSpeedTitle.Font = $FontSub
-$LblLiveSpeedTitle.ForeColor = $ColorTextLight
-$LblLiveSpeedTitle.Location = New-Object System.Drawing.Point(480, 10)
-$LblLiveSpeedTitle.AutoSize = $true
-
-$LblLiveSpeedValue = New-Object System.Windows.Forms.Label
-$LblLiveSpeedValue.Text = "0.00 KB/s"
-$LblLiveSpeedValue.Font = $FontMetric
-$LblLiveSpeedValue.ForeColor = $ColorAccent
-$LblLiveSpeedValue.Location = New-Object System.Drawing.Point(478, 33)
-$LblLiveSpeedValue.AutoSize = $true
-
-$CardStatus.Controls.AddRange(@(
-    $LblAdapter, $ComboAdapters, $LblStateTitle, $LblStateValue, $LblLiveSpeedTitle, $LblLiveSpeedValue
-))
-$Tab1.Controls.Add($CardStatus)
-
-# Card 2: Daily Quota Progress Card
-$CardDailyQuota = New-Object System.Windows.Forms.Panel
-$CardDailyQuota.Location = New-Object System.Drawing.Point(14, 102)
-$CardDailyQuota.Size = New-Object System.Drawing.Size(362, 114)
-$CardDailyQuota.BackColor = $ColorPanelBg
-$CardDailyQuota.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblDailyHeader = New-Object System.Windows.Forms.Label
-$LblDailyHeader.Text = "Daily Quota Consumption"
-$LblDailyHeader.Font = $FontSub
-$LblDailyHeader.ForeColor = $ColorTextLight
-$LblDailyHeader.Location = New-Object System.Drawing.Point(12, 10)
-$LblDailyHeader.AutoSize = $true
-
-$LblDailyPercent = New-Object System.Windows.Forms.Label
-$LblDailyPercent.Text = "0.0%"
-$LblDailyPercent.Font = $FontMetric
-$LblDailyPercent.ForeColor = $ColorAccent
-$LblDailyPercent.Location = New-Object System.Drawing.Point(280, 8)
-$LblDailyPercent.AutoSize = $true
-
-$ProgressDaily = New-Object System.Windows.Forms.ProgressBar
-$ProgressDaily.Location = New-Object System.Drawing.Point(14, 44)
-$ProgressDaily.Size = New-Object System.Drawing.Size(332, 22)
-$ProgressDaily.Minimum = 0
-$ProgressDaily.Maximum = 1000
-$ProgressDaily.Value = 0
-
-$LblDailyDetail = New-Object System.Windows.Forms.Label
-$LblDailyDetail.Text = "Used: 0.00 MB / 2.00 GB"
-$LblDailyDetail.Font = $FontBody
-$LblDailyDetail.ForeColor = $ColorTextMuted
-$LblDailyDetail.Location = New-Object System.Drawing.Point(14, 76)
-$LblDailyDetail.AutoSize = $true
-
-$CardDailyQuota.Controls.AddRange(@($LblDailyHeader, $LblDailyPercent, $ProgressDaily, $LblDailyDetail))
-$Tab1.Controls.Add($CardDailyQuota)
-
-# Card 3: Monthly Quota Progress Card
-$CardMonthlyQuota = New-Object System.Windows.Forms.Panel
-$CardMonthlyQuota.Location = New-Object System.Drawing.Point(390, 102)
-$CardMonthlyQuota.Size = New-Object System.Drawing.Size(362, 114)
-$CardMonthlyQuota.BackColor = $ColorPanelBg
-$CardMonthlyQuota.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblMonthlyHeader = New-Object System.Windows.Forms.Label
-$LblMonthlyHeader.Text = "Monthly Quota Consumption"
-$LblMonthlyHeader.Font = $FontSub
-$LblMonthlyHeader.ForeColor = $ColorTextLight
-$LblMonthlyHeader.Location = New-Object System.Drawing.Point(12, 10)
-$LblMonthlyHeader.AutoSize = $true
-
-$LblMonthlyPercent = New-Object System.Windows.Forms.Label
-$LblMonthlyPercent.Text = "0.0%"
-$LblMonthlyPercent.Font = $FontMetric
-$LblMonthlyPercent.ForeColor = $ColorSuccess
-$LblMonthlyPercent.Location = New-Object System.Drawing.Point(280, 8)
-$LblMonthlyPercent.AutoSize = $true
-
-$ProgressMonthly = New-Object System.Windows.Forms.ProgressBar
-$ProgressMonthly.Location = New-Object System.Drawing.Point(14, 44)
-$ProgressMonthly.Size = New-Object System.Drawing.Size(332, 22)
-$ProgressMonthly.Minimum = 0
-$ProgressMonthly.Maximum = 1000
-$ProgressMonthly.Value = 0
-
-$LblMonthlyDetail = New-Object System.Windows.Forms.Label
-$LblMonthlyDetail.Text = "Used: 0.00 GB / 16.00 GB"
-$LblMonthlyDetail.Font = $FontBody
-$LblMonthlyDetail.ForeColor = $ColorTextMuted
-$LblMonthlyDetail.Location = New-Object System.Drawing.Point(14, 76)
-$LblMonthlyDetail.AutoSize = $true
-
-$CardMonthlyQuota.Controls.AddRange(@($LblMonthlyHeader, $LblMonthlyPercent, $ProgressMonthly, $LblMonthlyDetail))
-$Tab1.Controls.Add($CardMonthlyQuota)
-
-# Card 4: Dual Threshold Configuration & Enforcement Settings
-$CardSettings = New-Object System.Windows.Forms.Panel
-$CardSettings.Location = New-Object System.Drawing.Point(14, 228)
-$CardSettings.Size = New-Object System.Drawing.Size(738, 260)
-$CardSettings.BackColor = $ColorPanelBg
-$CardSettings.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblSettingsHeader = New-Object System.Windows.Forms.Label
-$LblSettingsHeader.Text = "Dual Quota Control & Enforcement Rules"
-$LblSettingsHeader.Font = $FontSub
-$LblSettingsHeader.ForeColor = $ColorTextLight
-$LblSettingsHeader.Location = New-Object System.Drawing.Point(14, 12)
-$LblSettingsHeader.AutoSize = $true
-
-# Daily Limit Inputs
-$LblDailyLimitInput = New-Object System.Windows.Forms.Label
-$LblDailyLimitInput.Text = "Daily Limit (GB):"
-$LblDailyLimitInput.Font = $FontBody
-$LblDailyLimitInput.ForeColor = $ColorTextMuted
-$LblDailyLimitInput.Location = New-Object System.Drawing.Point(16, 42)
-$LblDailyLimitInput.AutoSize = $true
-
-$NumDailyLimit = New-Object System.Windows.Forms.NumericUpDown
-$NumDailyLimit.Location = New-Object System.Drawing.Point(18, 64)
-$NumDailyLimit.Size = New-Object System.Drawing.Size(140, 24)
-$NumDailyLimit.DecimalPlaces = 1
-$NumDailyLimit.Minimum = 0.1
-$NumDailyLimit.Maximum = 500.0
-$NumDailyLimit.Increment = 0.5
-$NumDailyLimit.Value = [decimal]$script:AppConfig.daily_limit_gb
-$NumDailyLimit.BackColor = $ColorInputBg
-$NumDailyLimit.ForeColor = $ColorTextLight
-
-$LblDailyWarnInput = New-Object System.Windows.Forms.Label
-$LblDailyWarnInput.Text = "Daily Warning (GB):"
-$LblDailyWarnInput.Font = $FontBody
-$LblDailyWarnInput.ForeColor = $ColorTextMuted
-$LblDailyWarnInput.Location = New-Object System.Drawing.Point(180, 42)
-$LblDailyWarnInput.AutoSize = $true
-
-$NumDailyWarn = New-Object System.Windows.Forms.NumericUpDown
-$NumDailyWarn.Location = New-Object System.Drawing.Point(182, 64)
-$NumDailyWarn.Size = New-Object System.Drawing.Size(140, 24)
-$NumDailyWarn.DecimalPlaces = 1
-$NumDailyWarn.Minimum = 0.1
-$NumDailyWarn.Maximum = 500.0
-$NumDailyWarn.Increment = 0.5
-$NumDailyWarn.Value = [decimal]$script:AppConfig.daily_warning_gb
-$NumDailyWarn.BackColor = $ColorInputBg
-$NumDailyWarn.ForeColor = $ColorTextLight
-
-# Monthly Limit Inputs
-$LblMonthlyLimitInput = New-Object System.Windows.Forms.Label
-$LblMonthlyLimitInput.Text = "Monthly Limit (GB):"
-$LblMonthlyLimitInput.Font = $FontBody
-$LblMonthlyLimitInput.ForeColor = $ColorTextMuted
-$LblMonthlyLimitInput.Location = New-Object System.Drawing.Point(380, 42)
-$LblMonthlyLimitInput.AutoSize = $true
-
-$NumMonthlyLimit = New-Object System.Windows.Forms.NumericUpDown
-$NumMonthlyLimit.Location = New-Object System.Drawing.Point(382, 64)
-$NumMonthlyLimit.Size = New-Object System.Drawing.Size(140, 24)
-$NumMonthlyLimit.DecimalPlaces = 1
-$NumMonthlyLimit.Minimum = 0.5
-$NumMonthlyLimit.Maximum = 2000.0
-$NumMonthlyLimit.Increment = 0.5
-$NumMonthlyLimit.Value = [decimal]$script:AppConfig.monthly_limit_gb
-$NumMonthlyLimit.BackColor = $ColorInputBg
-$NumMonthlyLimit.ForeColor = $ColorTextLight
-
-$LblMonthlyWarnInput = New-Object System.Windows.Forms.Label
-$LblMonthlyWarnInput.Text = "Monthly Warning (GB):"
-$LblMonthlyWarnInput.Font = $FontBody
-$LblMonthlyWarnInput.ForeColor = $ColorTextMuted
-$LblMonthlyWarnInput.Location = New-Object System.Drawing.Point(544, 42)
-$LblMonthlyWarnInput.AutoSize = $true
-
-$NumMonthlyWarn = New-Object System.Windows.Forms.NumericUpDown
-$NumMonthlyWarn.Location = New-Object System.Drawing.Point(546, 64)
-$NumMonthlyWarn.Size = New-Object System.Drawing.Size(140, 24)
-$NumMonthlyWarn.DecimalPlaces = 1
-$NumMonthlyWarn.Minimum = 0.5
-$NumMonthlyWarn.Maximum = 2000.0
-$NumMonthlyWarn.Increment = 0.5
-$NumMonthlyWarn.Value = [decimal]$script:AppConfig.warning_threshold_gb
-$NumMonthlyWarn.BackColor = $ColorInputBg
-$NumMonthlyWarn.ForeColor = $ColorTextLight
-
-# Checkboxes
-$ChkAutoDisconnectDaily = New-Object System.Windows.Forms.CheckBox
-$ChkAutoDisconnectDaily.Text = "Automated Cutoff: Disable Wi-Fi immediately when DAILY quota is reached"
-$ChkAutoDisconnectDaily.Font = $FontBody
-$ChkAutoDisconnectDaily.ForeColor = $ColorTextLight
-$ChkAutoDisconnectDaily.Location = New-Object System.Drawing.Point(18, 102)
-$ChkAutoDisconnectDaily.Size = New-Object System.Drawing.Size(680, 24)
-$ChkAutoDisconnectDaily.Checked = [bool]$script:AppConfig.auto_disconnect_daily
-
-$ChkAutoDisconnectMonthly = New-Object System.Windows.Forms.CheckBox
-$ChkAutoDisconnectMonthly.Text = "Automated Cutoff: Disable Wi-Fi immediately when MONTHLY quota is reached"
-$ChkAutoDisconnectMonthly.Font = $FontBody
-$ChkAutoDisconnectMonthly.ForeColor = $ColorTextLight
-$ChkAutoDisconnectMonthly.Location = New-Object System.Drawing.Point(18, 130)
-$ChkAutoDisconnectMonthly.Size = New-Object System.Drawing.Size(680, 24)
-$ChkAutoDisconnectMonthly.Checked = [bool]$script:AppConfig.auto_disconnect
-
-$ChkStartWithWindows = New-Object System.Windows.Forms.CheckBox
-$ChkStartWithWindows.Text = "Run at Windows Startup (Runs silently in background with highest Administrator privileges)"
-$ChkStartWithWindows.Font = $FontBody
-$ChkStartWithWindows.ForeColor = $ColorTextLight
-$ChkStartWithWindows.Location = New-Object System.Drawing.Point(18, 158)
-$ChkStartWithWindows.Size = New-Object System.Drawing.Size(680, 24)
-$ChkStartWithWindows.Checked = Test-StartupTaskEnabled
-
-$BtnSaveSettings = New-Object System.Windows.Forms.Button
-$BtnSaveSettings.Text = "Save All Quota Settings"
-$BtnSaveSettings.Location = New-Object System.Drawing.Point(18, 196)
-$BtnSaveSettings.Size = New-Object System.Drawing.Size(180, 32)
-$BtnSaveSettings.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnSaveSettings.FlatAppearance.BorderSize = 0
-$BtnSaveSettings.BackColor = $ColorAccentDark
-$BtnSaveSettings.ForeColor = $ColorTextLight
-$BtnSaveSettings.Font = $FontSub
-$BtnSaveSettings.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$LblSaveStatus = New-Object System.Windows.Forms.Label
-$LblSaveStatus.Text = ""
-$LblSaveStatus.Font = $FontBody
-$LblSaveStatus.ForeColor = $ColorSuccess
-$LblSaveStatus.Location = New-Object System.Drawing.Point(215, 203)
-$LblSaveStatus.AutoSize = $true
-
-$CardSettings.Controls.AddRange(@(
-    $LblSettingsHeader,
-    $LblDailyLimitInput, $NumDailyLimit, $LblDailyWarnInput, $NumDailyWarn,
-    $LblMonthlyLimitInput, $NumMonthlyLimit, $LblMonthlyWarnInput, $NumMonthlyWarn,
-    $ChkAutoDisconnectDaily, $ChkAutoDisconnectMonthly, $ChkStartWithWindows,
-    $BtnSaveSettings, $LblSaveStatus
-))
-$Tab1.Controls.Add($CardSettings)
-
-# Card 5: Manual Hardware Controls
-$CardManual = New-Object System.Windows.Forms.Panel
-$CardManual.Location = New-Object System.Drawing.Point(14, 500)
-$CardManual.Size = New-Object System.Drawing.Size(738, 86)
-$CardManual.BackColor = $ColorPanelBg
-$CardManual.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblManualHeader = New-Object System.Windows.Forms.Label
-$LblManualHeader.Text = "Manual Hardware Controls"
-$LblManualHeader.Font = $FontSub
-$LblManualHeader.ForeColor = $ColorTextLight
-$LblManualHeader.Location = New-Object System.Drawing.Point(14, 10)
-$LblManualHeader.AutoSize = $true
-
-$BtnDisableWifi = New-Object System.Windows.Forms.Button
-$BtnDisableWifi.Text = "Disable Wi-Fi"
-$BtnDisableWifi.Location = New-Object System.Drawing.Point(18, 36)
-$BtnDisableWifi.Size = New-Object System.Drawing.Size(140, 34)
-$BtnDisableWifi.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnDisableWifi.FlatAppearance.BorderSize = 0
-$BtnDisableWifi.BackColor = $ColorDanger
-$BtnDisableWifi.ForeColor = $ColorTextLight
-$BtnDisableWifi.Font = $FontSub
-$BtnDisableWifi.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$BtnEnableWifi = New-Object System.Windows.Forms.Button
-$BtnEnableWifi.Text = "Enable Wi-Fi"
-$BtnEnableWifi.Location = New-Object System.Drawing.Point(168, 36)
-$BtnEnableWifi.Size = New-Object System.Drawing.Size(140, 34)
-$BtnEnableWifi.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnEnableWifi.FlatAppearance.BorderSize = 0
-$BtnEnableWifi.BackColor = $ColorSuccess
-$BtnEnableWifi.ForeColor = $ColorTextLight
-$BtnEnableWifi.Font = $FontSub
-$BtnEnableWifi.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$LblManualStatus = New-Object System.Windows.Forms.Label
-$LblManualStatus.Text = "Target adapter ready for controls."
-$LblManualStatus.Font = $FontSmall
-$LblManualStatus.ForeColor = $ColorTextMuted
-$LblManualStatus.Location = New-Object System.Drawing.Point(324, 46)
-$LblManualStatus.AutoSize = $true
-
-$CardManual.Controls.AddRange(@(
-    $LblManualHeader, $BtnDisableWifi, $BtnEnableWifi, $LblManualStatus
-))
-$Tab1.Controls.Add($CardManual)
-
-
-# ==============================================================================
-# TAB 2: Live App Sentry (Per-Process Real-Time Bandwidth Monitor)
-# ==============================================================================
-$PanelLiveApps = New-Object System.Windows.Forms.Panel
-$PanelLiveApps.Location = New-Object System.Drawing.Point(14, 12)
-$PanelLiveApps.Size = New-Object System.Drawing.Size(738, 574)
-$PanelLiveApps.BackColor = $ColorPanelBg
-$PanelLiveApps.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblLiveAppsTitle = New-Object System.Windows.Forms.Label
-$LblLiveAppsTitle.Text = "Active Network Applications (Real-Time Throughput)"
-$LblLiveAppsTitle.Font = $FontSub
-$LblLiveAppsTitle.ForeColor = $ColorTextLight
-$LblLiveAppsTitle.Location = New-Object System.Drawing.Point(14, 10)
-$LblLiveAppsTitle.AutoSize = $true
-
-$TxtAppSearch = New-Object System.Windows.Forms.TextBox
-$TxtAppSearch.Location = New-Object System.Drawing.Point(16, 38)
-$TxtAppSearch.Size = New-Object System.Drawing.Size(260, 24)
-$TxtAppSearch.BackColor = $ColorInputBg
-$TxtAppSearch.ForeColor = $ColorTextLight
-
-$LblSearchPlaceholder = New-Object System.Windows.Forms.Label
-$LblSearchPlaceholder.Text = "Filter by process name..."
-$LblSearchPlaceholder.Font = $FontSmall
-$LblSearchPlaceholder.ForeColor = $ColorTextMuted
-$LblSearchPlaceholder.Location = New-Object System.Drawing.Point(284, 42)
-$LblSearchPlaceholder.AutoSize = $true
-
-$ListLiveApps = New-Object System.Windows.Forms.ListView
-$ListLiveApps.Location = New-Object System.Drawing.Point(14, 70)
-$ListLiveApps.Size = New-Object System.Drawing.Size(708, 436)
-$ListLiveApps.View = [System.Windows.Forms.View]::Details
-$ListLiveApps.FullRowSelect = $true
-$ListLiveApps.GridLines = $true
-$ListLiveApps.MultiSelect = $false
-$ListLiveApps.BackColor = $ColorInputBg
-$ListLiveApps.ForeColor = $ColorTextLight
-$ListLiveApps.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-[void]$ListLiveApps.Columns.Add("Application Name", 160)
-[void]$ListLiveApps.Columns.Add("PID", 65)
-[void]$ListLiveApps.Columns.Add("Live Speed", 110)
-[void]$ListLiveApps.Columns.Add("Session Total", 110)
-[void]$ListLiveApps.Columns.Add("Sockets", 65)
-[void]$ListLiveApps.Columns.Add("Executable Path", 270)
-
-$BtnBlockLiveApp = New-Object System.Windows.Forms.Button
-$BtnBlockLiveApp.Text = "🚫 Block Selected App in Firewall"
-$BtnBlockLiveApp.Location = New-Object System.Drawing.Point(14, 520)
-$BtnBlockLiveApp.Size = New-Object System.Drawing.Size(240, 34)
-$BtnBlockLiveApp.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnBlockLiveApp.FlatAppearance.BorderSize = 0
-$BtnBlockLiveApp.BackColor = $ColorDanger
-$BtnBlockLiveApp.ForeColor = $ColorTextLight
-$BtnBlockLiveApp.Font = $FontSub
-$BtnBlockLiveApp.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$BtnRefreshLiveApps = New-Object System.Windows.Forms.Button
-$BtnRefreshLiveApps.Text = "Refresh Processes"
-$BtnRefreshLiveApps.Location = New-Object System.Drawing.Point(264, 520)
-$BtnRefreshLiveApps.Size = New-Object System.Drawing.Size(150, 34)
-$BtnRefreshLiveApps.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnRefreshLiveApps.FlatAppearance.BorderSize = 0
-$BtnRefreshLiveApps.BackColor = $ColorAccentDark
-$BtnRefreshLiveApps.ForeColor = $ColorTextLight
-$BtnRefreshLiveApps.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$LblLiveAppBlockStatus = New-Object System.Windows.Forms.Label
-$LblLiveAppBlockStatus.Text = ""
-$LblLiveAppBlockStatus.Font = $FontSmall
-$LblLiveAppBlockStatus.ForeColor = $ColorSuccess
-$LblLiveAppBlockStatus.Location = New-Object System.Drawing.Point(430, 530)
-$LblLiveAppBlockStatus.AutoSize = $true
-
-$PanelLiveApps.Controls.AddRange(@(
-    $LblLiveAppsTitle, $TxtAppSearch, $LblSearchPlaceholder, $ListLiveApps,
-    $BtnBlockLiveApp, $BtnRefreshLiveApps, $LblLiveAppBlockStatus
-))
-$Tab2.Controls.Add($PanelLiveApps)
-
-
-# ==============================================================================
-# TAB 3: App Usage History (Cumulative Data Consumed Per Application)
-# ==============================================================================
-$PanelAppHistory = New-Object System.Windows.Forms.Panel
-$PanelAppHistory.Location = New-Object System.Drawing.Point(14, 12)
-$PanelAppHistory.Size = New-Object System.Drawing.Size(738, 574)
-$PanelAppHistory.BackColor = $ColorPanelBg
-$PanelAppHistory.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblAppHistTitle = New-Object System.Windows.Forms.Label
-$LblAppHistTitle.Text = "Application Data Consumption Leaderboard (Top Bandwidth Consumers)"
-$LblAppHistTitle.Font = $FontSub
-$LblAppHistTitle.ForeColor = $ColorTextLight
-$LblAppHistTitle.Location = New-Object System.Drawing.Point(14, 10)
-$LblAppHistTitle.AutoSize = $true
-
-$LblAppHistSub = New-Object System.Windows.Forms.Label
-$LblAppHistSub.Text = "Persistent accounting of data consumed by each application. Select any bandwidth hog to isolate it."
-$LblAppHistSub.Font = $FontSmall
-$LblAppHistSub.ForeColor = $ColorTextMuted
-$LblAppHistSub.Location = New-Object System.Drawing.Point(14, 34)
-$LblAppHistSub.AutoSize = $true
-
-$ListAppHistory = New-Object System.Windows.Forms.ListView
-$ListAppHistory.Location = New-Object System.Drawing.Point(14, 62)
-$ListAppHistory.Size = New-Object System.Drawing.Size(708, 444)
-$ListAppHistory.View = [System.Windows.Forms.View]::Details
-$ListAppHistory.FullRowSelect = $true
-$ListAppHistory.GridLines = $true
-$ListAppHistory.MultiSelect = $false
-$ListAppHistory.BackColor = $ColorInputBg
-$ListAppHistory.ForeColor = $ColorTextLight
-$ListAppHistory.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-[void]$ListAppHistory.Columns.Add("Application Name", 180)
-[void]$ListAppHistory.Columns.Add("Data Consumed", 140)
-[void]$ListAppHistory.Columns.Add("Last Seen", 140)
-[void]$ListAppHistory.Columns.Add("Executable Path", 320)
-
-$BtnBlockHistApp = New-Object System.Windows.Forms.Button
-$BtnBlockHistApp.Text = "🚫 Block Application in Firewall"
-$BtnBlockHistApp.Location = New-Object System.Drawing.Point(14, 520)
-$BtnBlockHistApp.Size = New-Object System.Drawing.Size(220, 34)
-$BtnBlockHistApp.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnBlockHistApp.FlatAppearance.BorderSize = 0
-$BtnBlockHistApp.BackColor = $ColorDanger
-$BtnBlockHistApp.ForeColor = $ColorTextLight
-$BtnBlockHistApp.Font = $FontSub
-$BtnBlockHistApp.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$BtnClearAppHist = New-Object System.Windows.Forms.Button
-$BtnClearAppHist.Text = "Reset App History"
-$BtnClearAppHist.Location = New-Object System.Drawing.Point(244, 520)
-$BtnClearAppHist.Size = New-Object System.Drawing.Size(150, 34)
-$BtnClearAppHist.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnClearAppHist.FlatAppearance.BorderSize = 0
-$BtnClearAppHist.BackColor = $ColorWarning
-$BtnClearAppHist.ForeColor = [System.Drawing.Color]::Black
-$BtnClearAppHist.Font = $FontSub
-$BtnClearAppHist.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$LblAppHistActionStatus = New-Object System.Windows.Forms.Label
-$LblAppHistActionStatus.Text = ""
-$LblAppHistActionStatus.Font = $FontSmall
-$LblAppHistActionStatus.ForeColor = $ColorSuccess
-$LblAppHistActionStatus.Location = New-Object System.Drawing.Point(410, 530)
-$LblAppHistActionStatus.AutoSize = $true
-
-$PanelAppHistory.Controls.AddRange(@(
-    $LblAppHistTitle, $LblAppHistSub, $ListAppHistory,
-    $BtnBlockHistApp, $BtnClearAppHist, $LblAppHistActionStatus
-))
-$Tab3.Controls.Add($PanelAppHistory)
-
-
-# ==============================================================================
-# TAB 4: Global Analytics & Billing Cycle
-# ==============================================================================
-$CardToday = New-Object System.Windows.Forms.Panel
-$CardToday.Location = New-Object System.Drawing.Point(14, 14)
-$CardToday.Size = New-Object System.Drawing.Size(236, 92)
-$CardToday.BackColor = $ColorPanelBg
-$CardToday.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblTodayTitle = New-Object System.Windows.Forms.Label
-$LblTodayTitle.Text = "TODAY"
-$LblTodayTitle.Font = $FontSub
-$LblTodayTitle.ForeColor = $ColorTextMuted
-$LblTodayTitle.Location = New-Object System.Drawing.Point(12, 10)
-$LblTodayTitle.AutoSize = $true
-
-$LblTodayValue = New-Object System.Windows.Forms.Label
-$LblTodayValue.Text = "0.00 MB"
-$LblTodayValue.Font = $FontMetric
-$LblTodayValue.ForeColor = $ColorAccent
-$LblTodayValue.Location = New-Object System.Drawing.Point(10, 34)
-$LblTodayValue.AutoSize = $true
-
-$LblTodaySub = New-Object System.Windows.Forms.Label
-$LblTodaySub.Text = (Get-Date).ToString("yyyy-MM-dd")
-$LblTodaySub.Font = $FontSmall
-$LblTodaySub.ForeColor = $ColorTextMuted
-$LblTodaySub.Location = New-Object System.Drawing.Point(12, 66)
-$LblTodaySub.AutoSize = $true
-
-$CardToday.Controls.AddRange(@($LblTodayTitle, $LblTodayValue, $LblTodaySub))
-$Tab4.Controls.Add($CardToday)
-
-$CardMonth = New-Object System.Windows.Forms.Panel
-$CardMonth.Location = New-Object System.Drawing.Point(264, 14)
-$CardMonth.Size = New-Object System.Drawing.Size(236, 92)
-$CardMonth.BackColor = $ColorPanelBg
-$CardMonth.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblMonthTitle = New-Object System.Windows.Forms.Label
-$LblMonthTitle.Text = "THIS MONTH"
-$LblMonthTitle.Font = $FontSub
-$LblMonthTitle.ForeColor = $ColorTextMuted
-$LblMonthTitle.Location = New-Object System.Drawing.Point(12, 10)
-$LblMonthTitle.AutoSize = $true
-
-$LblMonthValue = New-Object System.Windows.Forms.Label
-$LblMonthValue.Text = "0.00 GB"
-$LblMonthValue.Font = $FontMetric
-$LblMonthValue.ForeColor = $ColorSuccess
-$LblMonthValue.Location = New-Object System.Drawing.Point(10, 34)
-$LblMonthValue.AutoSize = $true
-
-$LblMonthSub = New-Object System.Windows.Forms.Label
-$LblMonthSub.Text = (Get-Date).ToString("MMMM yyyy")
-$LblMonthSub.Font = $FontSmall
-$LblMonthSub.ForeColor = $ColorTextMuted
-$LblMonthSub.Location = New-Object System.Drawing.Point(12, 66)
-$LblMonthSub.AutoSize = $true
-
-$CardMonth.Controls.AddRange(@($LblMonthTitle, $LblMonthValue, $LblMonthSub))
-$Tab4.Controls.Add($CardMonth)
-
-$CardYear = New-Object System.Windows.Forms.Panel
-$CardYear.Location = New-Object System.Drawing.Point(514, 14)
-$CardYear.Size = New-Object System.Drawing.Size(236, 92)
-$CardYear.BackColor = $ColorPanelBg
-$CardYear.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblYearTitle = New-Object System.Windows.Forms.Label
-$LblYearTitle.Text = "THIS YEAR"
-$LblYearTitle.Font = $FontSub
-$LblYearTitle.ForeColor = $ColorTextMuted
-$LblYearTitle.Location = New-Object System.Drawing.Point(12, 10)
-$LblYearTitle.AutoSize = $true
-
-$LblYearValue = New-Object System.Windows.Forms.Label
-$LblYearValue.Text = "0.00 GB"
-$LblYearValue.Font = $FontMetric
-$LblYearValue.ForeColor = $ColorAccent
-$LblYearValue.Location = New-Object System.Drawing.Point(10, 34)
-$LblYearValue.AutoSize = $true
-
-$LblYearSub = New-Object System.Windows.Forms.Label
-$LblYearSub.Text = (Get-Date).ToString("yyyy")
-$LblYearSub.Font = $FontSmall
-$LblYearSub.ForeColor = $ColorTextMuted
-$LblYearSub.Location = New-Object System.Drawing.Point(12, 66)
-$LblYearSub.AutoSize = $true
-
-$CardYear.Controls.AddRange(@($LblYearTitle, $LblYearValue, $LblYearSub))
-$Tab4.Controls.Add($CardYear)
-
-# History Data List
-$PanelHistoryTable = New-Object System.Windows.Forms.Panel
-$PanelHistoryTable.Location = New-Object System.Drawing.Point(14, 120)
-$PanelHistoryTable.Size = New-Object System.Drawing.Size(738, 350)
-$PanelHistoryTable.BackColor = $ColorPanelBg
-$PanelHistoryTable.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblHistoryTableTitle = New-Object System.Windows.Forms.Label
-$LblHistoryTableTitle.Text = "Daily Usage Log (Historical Dates)"
-$LblHistoryTableTitle.Font = $FontSub
-$LblHistoryTableTitle.ForeColor = $ColorTextLight
-$LblHistoryTableTitle.Location = New-Object System.Drawing.Point(12, 10)
-$LblHistoryTableTitle.AutoSize = $true
-
-$ListHistory = New-Object System.Windows.Forms.ListView
-$ListHistory.Location = New-Object System.Drawing.Point(12, 36)
-$ListHistory.Size = New-Object System.Drawing.Size(712, 300)
-$ListHistory.View = [System.Windows.Forms.View]::Details
-$ListHistory.FullRowSelect = $true
-$ListHistory.GridLines = $true
-$ListHistory.BackColor = $ColorInputBg
-$ListHistory.ForeColor = $ColorTextLight
-$ListHistory.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-[void]$ListHistory.Columns.Add("Date", 160)
-[void]$ListHistory.Columns.Add("Data Consumed", 200)
-[void]$ListHistory.Columns.Add("Raw Bytes", 240)
-
-$PanelHistoryTable.Controls.AddRange(@($LblHistoryTableTitle, $ListHistory))
-$Tab4.Controls.Add($PanelHistoryTable)
-
-# Billing Cycle Reset Card
-$CardReset = New-Object System.Windows.Forms.Panel
-$CardReset.Location = New-Object System.Drawing.Point(14, 484)
-$CardReset.Size = New-Object System.Drawing.Size(738, 94)
-$CardReset.BackColor = $ColorPanelBg
-$CardReset.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblResetTitle = New-Object System.Windows.Forms.Label
-$LblResetTitle.Text = "Billing Cycle Synchronization"
-$LblResetTitle.Font = $FontSub
-$LblResetTitle.ForeColor = $ColorTextLight
-$LblResetTitle.Location = New-Object System.Drawing.Point(12, 10)
-$LblResetTitle.AutoSize = $true
-
-$LblResetDesc = New-Object System.Windows.Forms.Label
-$LblResetDesc.Text = "Reset monthly consumption to 0 GB when your ISP / Cellular billing cycle renews."
-$LblResetDesc.Font = $FontSmall
-$LblResetDesc.ForeColor = $ColorTextMuted
-$LblResetDesc.Location = New-Object System.Drawing.Point(12, 34)
-$LblResetDesc.AutoSize = $true
-
-$BtnResetMonth = New-Object System.Windows.Forms.Button
-$BtnResetMonth.Text = "Reset Current Month"
-$BtnResetMonth.Location = New-Object System.Drawing.Point(14, 54)
-$BtnResetMonth.Size = New-Object System.Drawing.Size(180, 28)
-$BtnResetMonth.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnResetMonth.FlatAppearance.BorderSize = 0
-$BtnResetMonth.BackColor = $ColorWarning
-$BtnResetMonth.ForeColor = [System.Drawing.Color]::Black
-$BtnResetMonth.Font = $FontSub
-$BtnResetMonth.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$LblResetStatus = New-Object System.Windows.Forms.Label
-$LblResetStatus.Text = ""
-$LblResetStatus.Font = $FontSmall
-$LblResetStatus.ForeColor = $ColorSuccess
-$LblResetStatus.Location = New-Object System.Drawing.Point(210, 60)
-$LblResetStatus.AutoSize = $true
-
-$CardReset.Controls.AddRange(@($LblResetTitle, $LblResetDesc, $BtnResetMonth, $LblResetStatus))
-$Tab4.Controls.Add($CardReset)
-
-
-# ==============================================================================
-# TAB 5: Application Firewall Blocker
-# ==============================================================================
-$CardFirewallPicker = New-Object System.Windows.Forms.Panel
-$CardFirewallPicker.Location = New-Object System.Drawing.Point(14, 12)
-$CardFirewallPicker.Size = New-Object System.Drawing.Size(738, 126)
-$CardFirewallPicker.BackColor = $ColorPanelBg
-$CardFirewallPicker.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblFwTitle = New-Object System.Windows.Forms.Label
-$LblFwTitle.Text = "Windows Defender Firewall Outbound Blocker"
-$LblFwTitle.Font = $FontSub
-$LblFwTitle.ForeColor = $ColorTextLight
-$LblFwTitle.Location = New-Object System.Drawing.Point(14, 10)
-$LblFwTitle.AutoSize = $true
-
-$LblFwDesc = New-Object System.Windows.Forms.Label
-$LblFwDesc.Text = "Select any .exe file to create an immediate outbound block rule in Windows Defender Firewall."
-$LblFwDesc.Font = $FontSmall
-$LblFwDesc.ForeColor = $ColorTextMuted
-$LblFwDesc.Location = New-Object System.Drawing.Point(14, 34)
-$LblFwDesc.AutoSize = $true
-
-$TxtExePath = New-Object System.Windows.Forms.TextBox
-$TxtExePath.Location = New-Object System.Drawing.Point(16, 58)
-$TxtExePath.Size = New-Object System.Drawing.Size(580, 24)
-$TxtExePath.BackColor = $ColorInputBg
-$TxtExePath.ForeColor = $ColorTextLight
-$TxtExePath.ReadOnly = $true
-
-$BtnBrowseExe = New-Object System.Windows.Forms.Button
-$BtnBrowseExe.Text = "Browse..."
-$BtnBrowseExe.Location = New-Object System.Drawing.Point(606, 56)
-$BtnBrowseExe.Size = New-Object System.Drawing.Size(116, 28)
-$BtnBrowseExe.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnBrowseExe.FlatAppearance.BorderSize = 0
-$BtnBrowseExe.BackColor = $ColorPanelBg
-$BtnBrowseExe.ForeColor = $ColorAccent
-$BtnBrowseExe.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$BtnBlockApp = New-Object System.Windows.Forms.Button
-$BtnBlockApp.Text = "Block Outbound Access"
-$BtnBlockApp.Location = New-Object System.Drawing.Point(16, 90)
-$BtnBlockApp.Size = New-Object System.Drawing.Size(180, 28)
-$BtnBlockApp.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnBlockApp.FlatAppearance.BorderSize = 0
-$BtnBlockApp.BackColor = $ColorDanger
-$BtnBlockApp.ForeColor = $ColorTextLight
-$BtnBlockApp.Font = $FontSub
-$BtnBlockApp.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$LblFwActionStatus = New-Object System.Windows.Forms.Label
-$LblFwActionStatus.Text = ""
-$LblFwActionStatus.Font = $FontSmall
-$LblFwActionStatus.ForeColor = $ColorSuccess
-$LblFwActionStatus.Location = New-Object System.Drawing.Point(210, 96)
-$LblFwActionStatus.AutoSize = $true
-
-$CardFirewallPicker.Controls.AddRange(@(
-    $LblFwTitle, $LblFwDesc, $TxtExePath, $BtnBrowseExe, $BtnBlockApp, $LblFwActionStatus
-))
-$Tab5.Controls.Add($CardFirewallPicker)
-
-# Firewall Rules List Card
-$CardFirewallList = New-Object System.Windows.Forms.Panel
-$CardFirewallList.Location = New-Object System.Drawing.Point(14, 150)
-$CardFirewallList.Size = New-Object System.Drawing.Size(738, 436)
-$CardFirewallList.BackColor = $ColorPanelBg
-$CardFirewallList.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-$LblRulesListTitle = New-Object System.Windows.Forms.Label
-$LblRulesListTitle.Text = "Active DataControl Outbound Block Rules"
-$LblRulesListTitle.Font = $FontSub
-$LblRulesListTitle.ForeColor = $ColorTextLight
-$LblRulesListTitle.Location = New-Object System.Drawing.Point(14, 10)
-$LblRulesListTitle.AutoSize = $true
-
-$ListFirewallRules = New-Object System.Windows.Forms.ListView
-$ListFirewallRules.Location = New-Object System.Drawing.Point(14, 36)
-$ListFirewallRules.Size = New-Object System.Drawing.Size(708, 340)
-$ListFirewallRules.View = [System.Windows.Forms.View]::Details
-$ListFirewallRules.FullRowSelect = $true
-$ListFirewallRules.GridLines = $true
-$ListFirewallRules.MultiSelect = $false
-$ListFirewallRules.BackColor = $ColorInputBg
-$ListFirewallRules.ForeColor = $ColorTextLight
-$ListFirewallRules.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
-
-[void]$ListFirewallRules.Columns.Add("Rule Display Name", 240)
-[void]$ListFirewallRules.Columns.Add("Program Path", 360)
-[void]$ListFirewallRules.Columns.Add("Action", 80)
-
-$BtnUnblockApp = New-Object System.Windows.Forms.Button
-$BtnUnblockApp.Text = "Unblock Application"
-$BtnUnblockApp.Location = New-Object System.Drawing.Point(14, 388)
-$BtnUnblockApp.Size = New-Object System.Drawing.Size(160, 32)
-$BtnUnblockApp.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnUnblockApp.FlatAppearance.BorderSize = 0
-$BtnUnblockApp.BackColor = $ColorSuccess
-$BtnUnblockApp.ForeColor = $ColorTextLight
-$BtnUnblockApp.Font = $FontSub
-$BtnUnblockApp.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$BtnRefreshRules = New-Object System.Windows.Forms.Button
-$BtnRefreshRules.Text = "Refresh Rules"
-$BtnRefreshRules.Location = New-Object System.Drawing.Point(184, 388)
-$BtnRefreshRules.Size = New-Object System.Drawing.Size(130, 32)
-$BtnRefreshRules.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
-$BtnRefreshRules.FlatAppearance.BorderSize = 0
-$BtnRefreshRules.BackColor = $ColorAccentDark
-$BtnRefreshRules.ForeColor = $ColorTextLight
-$BtnRefreshRules.Cursor = [System.Windows.Forms.Cursors]::Hand
-
-$LblUnblockStatus = New-Object System.Windows.Forms.Label
-$LblUnblockStatus.Text = ""
-$LblUnblockStatus.Font = $FontSmall
-$LblUnblockStatus.ForeColor = $ColorSuccess
-$LblUnblockStatus.Location = New-Object System.Drawing.Point(330, 396)
-$LblUnblockStatus.AutoSize = $true
-
-$CardFirewallList.Controls.AddRange(@(
-    $LblRulesListTitle, $ListFirewallRules, $BtnUnblockApp, $BtnRefreshRules, $LblUnblockStatus
-))
-$Tab5.Controls.Add($CardFirewallList)
-
-
-# ==============================================================================
-# Dynamic UI Refresh & Data Binding Functions
-# ==============================================================================
-
-function Refresh-AdapterList {
-    $ComboAdapters.Items.Clear()
-    try {
-        $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Sort-Object -Property @{
-            Expression = {
-                if ($_.PhysicalMediaType -match "802.11" -or $_.MediaType -match "Native 802.11" -or $_.Name -like "*Wi-Fi*") { 0 } else { 1 }
-            }
-        }, Name
-
-        foreach ($a in $adapters) {
-            [void]$ComboAdapters.Items.Add($a.Name)
-        }
-
-        if ($ComboAdapters.Items.Contains($script:AppConfig.target_adapter)) {
-            $ComboAdapters.SelectedItem = $script:AppConfig.target_adapter
-        } elseif ($ComboAdapters.Items.Count -gt 0) {
-            $ComboAdapters.SelectedIndex = 0
-            $script:AppConfig.target_adapter = [string]$ComboAdapters.SelectedItem
-            Save-AppConfig $script:AppConfig
-        }
-    } catch {
-        [void]$ComboAdapters.Items.Add("Wi-Fi")
-        $ComboAdapters.SelectedIndex = 0
-    }
-}
-
-function Refresh-AdapterStatusLabel {
-    $sel = [string]$ComboAdapters.SelectedItem
-    if (-not $sel) { $sel = $script:AppConfig.target_adapter }
-    try {
-        $adapter = Get-NetAdapter -Name $sel -ErrorAction SilentlyContinue
-        if ($adapter) {
-            if ($adapter.Status -eq "Up") {
-                $LblStateValue.Text = "Connected (Up)"
-                $LblStateValue.ForeColor = $ColorSuccess
-                $HeaderStatusBadge.Text = "● CONNECTED"
-                $HeaderStatusBadge.ForeColor = $ColorSuccess
-            } elseif ($adapter.Status -eq "Disabled") {
-                $LblStateValue.Text = "Disabled"
-                $LblStateValue.ForeColor = $ColorDanger
-                $HeaderStatusBadge.Text = "● DISABLED"
-                $HeaderStatusBadge.ForeColor = $ColorDanger
-            } else {
-                $LblStateValue.Text = "$($adapter.Status)"
-                $LblStateValue.ForeColor = $ColorWarning
-                $HeaderStatusBadge.Text = "● $($adapter.Status.ToUpper())"
-                $HeaderStatusBadge.ForeColor = $ColorWarning
-            }
-        } else {
-            $LblStateValue.Text = "Not Found"
-            $LblStateValue.ForeColor = $ColorDanger
-            $HeaderStatusBadge.Text = "● ADAPTER MISSING"
-            $HeaderStatusBadge.ForeColor = $ColorDanger
-        }
-    } catch {
-        $LblStateValue.Text = "Error"
-        $LblStateValue.ForeColor = $ColorDanger
-    }
-}
-
-function Refresh-UsageDisplay {
-    $dateNow = Get-Date
-    $dayKey = $dateNow.ToString("yyyy-MM-dd")
-    $monthKey = $dateNow.ToString("yyyy-MM")
-    $yearKey = $dateNow.ToString("yyyy")
-
-    $dayBytes = 0.0
-    if ($script:DataHistory.daily.PSObject.Properties[$dayKey]) {
-        $dayBytes = [double]$script:DataHistory.daily.$dayKey
-    }
-
-    $monthBytes = 0.0
-    if ($script:DataHistory.monthly.PSObject.Properties[$monthKey]) {
-        $monthBytes = [double]$script:DataHistory.monthly.$monthKey
-    }
-
-    $yearBytes = 0.0
-    if ($script:DataHistory.yearly.PSObject.Properties[$yearKey]) {
-        $yearBytes = [double]$script:DataHistory.yearly.$yearKey
-    }
-
-    $dayGB = $dayBytes / 1GB
-    $monthGB = $monthBytes / 1GB
-
-    $dailyLimitGB = [double]$script:AppConfig.daily_limit_gb
-    $dailyWarnGB  = [double]$script:AppConfig.daily_warning_gb
-    $monthlyLimitGB = [double]$script:AppConfig.monthly_limit_gb
-    $monthlyWarnGB  = [double]$script:AppConfig.warning_threshold_gb
-
-    # Live Overall Speed Readout
-    $rateBps = $script:CurrentThroughputBytesPerSec
-    if ($rateBps -ge 1MB) {
-        $rateMB = [math]::Round($rateBps / 1MB, 2)
-        $LblLiveSpeedValue.Text = "$rateMB MB/s"
-    } else {
-        $rateKB = [math]::Round($rateBps / 1KB, 1)
-        $LblLiveSpeedValue.Text = "$rateKB KB/s"
-    }
-
-    # 1. Daily Quota Progress & Percentage
-    $dailyPercent = 0.0
-    if ($dailyLimitGB -gt 0) {
-        $dailyPercent = [math]::Round(($dayGB / $dailyLimitGB) * 100.0, 1)
-    }
-    $LblDailyPercent.Text = "$dailyPercent%"
-    $progValDaily = [int]([math]::Min(100.0, [math]::Max(0.0, $dailyPercent)) * 10)
-    $ProgressDaily.Value = $progValDaily
-
-    $dailyRemain = [math]::Max(0.0, [math]::Round($dailyLimitGB - $dayGB, 2))
-    $LblDailyDetail.Text = "Used: $(Format-Bytes $dayBytes) / $dailyLimitGB GB (Remaining: $dailyRemain GB)"
-
-    if ($dayGB -ge $dailyLimitGB) {
-        $LblDailyPercent.ForeColor = $ColorDanger
-    } elseif ($dayGB -ge $dailyWarnGB) {
-        $LblDailyPercent.ForeColor = $ColorWarning
-    } else {
-        $LblDailyPercent.ForeColor = $ColorAccent
-    }
-
-    # 2. Monthly Quota Progress & Percentage
-    $monthlyPercent = 0.0
-    if ($monthlyLimitGB -gt 0) {
-        $monthlyPercent = [math]::Round(($monthGB / $monthlyLimitGB) * 100.0, 1)
-    }
-    $LblMonthlyPercent.Text = "$monthlyPercent%"
-    $progValMonthly = [int]([math]::Min(100.0, [math]::Max(0.0, $monthlyPercent)) * 10)
-    $ProgressMonthly.Value = $progValMonthly
-
-    $monthlyRemain = [math]::Max(0.0, [math]::Round($monthlyLimitGB - $monthGB, 2))
-    $LblMonthlyDetail.Text = "Used: $([math]::Round($monthGB, 2)) GB / $monthlyLimitGB GB (Remaining: $monthlyRemain GB)"
-
-    if ($monthGB -ge $monthlyLimitGB) {
-        $LblMonthlyPercent.ForeColor = $ColorDanger
-    } elseif ($monthGB -ge $monthlyWarnGB) {
-        $LblMonthlyPercent.ForeColor = $ColorWarning
-    } else {
-        $LblMonthlyPercent.ForeColor = $ColorSuccess
-    }
-
-    # Global Analytics Tab Cards
-    $LblTodayValue.Text = Format-Bytes $dayBytes
-    $LblMonthValue.Text = Format-Bytes $monthBytes
-    $LblYearValue.Text = Format-Bytes $yearBytes
-
-    # Tray Tooltip
-    $trayStr = "DataControl - Day: $(Format-Bytes $dayBytes) | Month: $([math]::Round($monthGB, 2)) GB"
-    if ($trayStr.Length -gt 63) { $trayStr = $trayStr.Substring(0, 63) }
-    $NotifyIcon.Text = $trayStr
-}
-
-function Refresh-LiveAppsList {
-    $filterText = $TxtAppSearch.Text.Trim().ToLower()
-    $ListLiveApps.BeginUpdate()
-    $ListLiveApps.Items.Clear()
-
-    # Sort active processes by highest speed or session bytes
-    $sortedItems = $script:ProcStateCache.Values | Sort-Object -Property SpeedBps, SessionBytes -Descending
-
-    foreach ($item in $sortedItems) {
-        if ($filterText -and -not ($item.Name.ToLower().Contains($filterText) -or $item.Path.ToLower().Contains($filterText))) {
-            continue
-        }
-
-        $speedStr = if ($item.SpeedBps -ge 1MB) {
-            "$([math]::Round($item.SpeedBps / 1MB, 2)) MB/s"
-        } elseif ($item.SpeedBps -ge 1KB) {
-            "$([math]::Round($item.SpeedBps / 1KB, 1)) KB/s"
-        } else {
-            "0.0 KB/s"
-        }
-
-        $sessionStr = Format-Bytes $item.SessionBytes
-
-        $lvItem = New-Object System.Windows.Forms.ListViewItem($item.Name)
-        [void]$lvItem.SubItems.Add($item.PID.ToString())
-        [void]$lvItem.SubItems.Add($speedStr)
-        [void]$lvItem.SubItems.Add($sessionStr)
-        [void]$lvItem.SubItems.Add($item.Connections.ToString())
-        [void]$lvItem.SubItems.Add($item.Path)
-        $lvItem.Tag = $item.Path
-
-        $ListLiveApps.Items.Add($lvItem)
-    }
-
-    $ListLiveApps.EndUpdate()
-}
-
-function Refresh-AppHistoryList {
-    $ListAppHistory.BeginUpdate()
-    $ListAppHistory.Items.Clear()
-
-    if ($script:AppHistory) {
-        $props = $script:AppHistory.PSObject.Properties | Sort-Object -Property @{
-            Expression = { [double]$_.Value.TotalBytes }
-        } -Descending
-
-        foreach ($prop in $props) {
-            $val = $prop.Value
-            $bytes = [double]$val.TotalBytes
-            $path = [string]$val.Path
-            $seen = [string]$val.LastSeen
-
-            $lvItem = New-Object System.Windows.Forms.ListViewItem($prop.Name)
-            [void]$lvItem.SubItems.Add((Format-Bytes $bytes))
-            [void]$lvItem.SubItems.Add($seen)
-            [void]$lvItem.SubItems.Add($path)
-            $lvItem.Tag = $path
-
-            $ListAppHistory.Items.Add($lvItem)
-        }
-    }
-    $ListAppHistory.EndUpdate()
-}
-
-function Refresh-HistoryTable {
-    $ListHistory.BeginUpdate()
-    $ListHistory.Items.Clear()
-
-    if ($script:DataHistory.daily) {
-        $props = $script:DataHistory.daily.PSObject.Properties | Sort-Object -Property Name -Descending
-        foreach ($prop in $props) {
-            $bytes = [double]$prop.Value
-            $item = New-Object System.Windows.Forms.ListViewItem($prop.Name)
-            [void]$item.SubItems.Add((Format-Bytes $bytes))
-            [void]$item.SubItems.Add(($bytes.ToString("N0") + " bytes"))
-            [void]$ListHistory.Items.Add($item)
-        }
-    }
-    $ListHistory.EndUpdate()
-}
-
-function Refresh-FirewallRulesList {
-    $ListFirewallRules.BeginUpdate()
-    $ListFirewallRules.Items.Clear()
-    try {
-        $rules = Get-NetFirewallRule -DisplayName "DataControl-Block-*" -ErrorAction SilentlyContinue
-        foreach ($r in $rules) {
-            $progPath = ""
-            try {
-                $filter = $r | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue
-                if ($filter -and $filter.Program) { $progPath = $filter.Program }
-            } catch {}
-
-            $item = New-Object System.Windows.Forms.ListViewItem($r.DisplayName)
-            [void]$item.SubItems.Add($progPath)
-            [void]$item.SubItems.Add($r.Action.ToString())
-            $item.Tag = $r.DisplayName
-            [void]$ListFirewallRules.Items.Add($item)
-        }
-    } catch {
-        Write-Warning "Failed to query firewall rules: $_"
-    }
-    $ListFirewallRules.EndUpdate()
 }
 
 # ==============================================================================
@@ -1624,7 +428,7 @@ function Check-EnforcementRules {
             $NotifyIcon.ShowBalloonTip(
                 4000,
                 "DataControl: Daily Warning Threshold Reached",
-                "Today's data consumption has reached $([math]::Round($dayGB, 2)) GB (Daily Warning: $dailyWarnGB GB / Limit: $dailyLimitGB GB).",
+                "Today's data consumption has reached $([math]::Round($dayGB, 2)) GB (Warning: $dailyWarnGB GB / Limit: $dailyLimitGB GB).",
                 [System.Windows.Forms.ToolTipIcon]::Warning
             )
             $script:DailyWarningNotified = $true
@@ -1639,9 +443,6 @@ function Check-EnforcementRules {
             if ($script:AppConfig.auto_disconnect_daily) {
                 try {
                     Disable-NetAdapter -Name $targetAdapter -Confirm:$false -ErrorAction SilentlyContinue
-                    $LblManualStatus.Text = "Daily cutoff executed! Limit exceeded."
-                    $LblManualStatus.ForeColor = $ColorDanger
-                    Refresh-AdapterStatusLabel
                 } catch {}
 
                 $NotifyIcon.ShowBalloonTip(
@@ -1685,9 +486,6 @@ function Check-EnforcementRules {
             if ($script:AppConfig.auto_disconnect) {
                 try {
                     Disable-NetAdapter -Name $targetAdapter -Confirm:$false -ErrorAction SilentlyContinue
-                    $LblManualStatus.Text = "Monthly cutoff executed! Limit exceeded."
-                    $LblManualStatus.ForeColor = $ColorDanger
-                    Refresh-AdapterStatusLabel
                 } catch {}
 
                 $NotifyIcon.ShowBalloonTip(
@@ -1711,141 +509,1401 @@ function Check-EnforcementRules {
     }
 }
 
-# Background Poll Timer Setup
-$PollTimer = New-Object System.Windows.Forms.Timer
-$pollSeconds = [int]$script:AppConfig.poll_frequency_seconds
-if ($pollSeconds -lt 1) { $pollSeconds = 3 }
-$PollTimer.Interval = $pollSeconds * 1000
+# ==============================================================================
+# Ultra-Modern WPF XAML Specification (Windows 11 Fluent 2 Dark Mode)
+# ==============================================================================
+$xaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DataControl - Windows 11 Data Control System"
+        Width="1080" Height="760" MinWidth="880" MinHeight="620"
+        WindowStartupLocation="CenterScreen"
+        Background="#0A0E17" Foreground="#F8FAFC"
+        FontFamily="Segoe UI, Segoe UI Variable Display, Arial">
 
-$PollTimer.Add_Tick({
-    $target = [string]$ComboAdapters.SelectedItem
-    if (-not $target) { $target = $script:AppConfig.target_adapter }
+    <Window.Resources>
+        <!-- Modern Obsidian/Slate Color Palette Brushes -->
+        <SolidColorBrush x:Key="BgRoot" Color="#0A0E17"/>
+        <SolidColorBrush x:Key="BgSidebar" Color="#0E1422"/>
+        <SolidColorBrush x:Key="BgCard" Color="#131B2E"/>
+        <SolidColorBrush x:Key="BgCardElevated" Color="#182238"/>
+        <SolidColorBrush x:Key="BgInput" Color="#0A0E18"/>
+        <SolidColorBrush x:Key="BorderSubtle" Color="#1E2D4A"/>
+        <SolidColorBrush x:Key="BorderLight" Color="#2A3D63"/>
+        <SolidColorBrush x:Key="AccentSky" Color="#38BDF8"/>
+        <SolidColorBrush x:Key="AccentBlue" Color="#0284C7"/>
+        <SolidColorBrush x:Key="AccentSuccess" Color="#10B981"/>
+        <SolidColorBrush x:Key="AccentWarning" Color="#F59E0B"/>
+        <SolidColorBrush x:Key="AccentDanger" Color="#F43F5E"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#F8FAFC"/>
+        <SolidColorBrush x:Key="TextSecondary" Color="#94A3B8"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#64748B"/>
 
-    Update-NetworkMetrics -AdapterName $target
-    Refresh-AdapterStatusLabel
-    Refresh-UsageDisplay
-    Check-EnforcementRules
+        <!-- Custom Slim Dark ScrollBar Style -->
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="Transparent">
+                            <Track x:Name="PART_Track" IsDirectionReversed="true">
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border Background="#253552" CornerRadius="4" Margin="1,0"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-    # Live Tab auto-update if active
-    if ($TabControl.SelectedTab -eq $Tab2) {
-        Refresh-LiveAppsList
+        <!-- Modern Elevated Card Style -->
+        <Style x:Key="ModernCard" TargetType="Border">
+            <Setter Property="Background" Value="#131B2E"/>
+            <Setter Property="BorderBrush" Value="#1E2D4A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="18"/>
+        </Style>
+
+        <!-- Modern Pill Toggle Switch -->
+        <Style x:Key="ModernToggle" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal" Cursor="Hand">
+                            <Grid Width="44" Height="22" Margin="0,0,12,0" VerticalAlignment="Center">
+                                <Border x:Name="Track" Background="#1E293B" CornerRadius="11" BorderThickness="1" BorderBrush="#334155"/>
+                                <Ellipse x:Name="Thumb" Width="14" Height="14" Fill="#F8FAFC" HorizontalAlignment="Left" Margin="4,0,0,0"/>
+                            </Grid>
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="#0284C7"/>
+                                <Setter TargetName="Track" Property="BorderBrush" Value="#38BDF8"/>
+                                <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
+                                <Setter TargetName="Thumb" Property="Margin" Value="0,0,4,0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Modern Action Button -->
+        <Style x:Key="PrimaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#0284C7"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#0369A1"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#075985"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DangerBtn" TargetType="Button">
+            <Setter Property="Background" Value="#E11D48"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#BE123C"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SuccessBtn" TargetType="Button">
+            <Setter Property="Background" Value="#059669"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#047857"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SecondaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#1E293B"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="#334155" BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#334155"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Sidebar Navigation Button Style -->
+        <Style x:Key="NavBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#94A3B8"/>
+            <Setter Property="FontSize" Value="13.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="16,10"/>
+            <Setter Property="Margin" Value="8,3"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#162035"/>
+                                <Setter Property="Foreground" Value="#F8FAFC"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Dark Styled Modern ListView & Headers -->
+        <Style TargetType="ListView">
+            <Setter Property="Background" Value="#0A0E18"/>
+            <Setter Property="BorderBrush" Value="#1E2D4A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+            <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
+        </Style>
+        <Style TargetType="GridViewColumnHeader">
+            <Setter Property="Background" Value="#131B2E"/>
+            <Setter Property="Foreground" Value="#94A3B8"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="BorderBrush" Value="#1E2D4A"/>
+            <Setter Property="BorderThickness" Value="0,0,1,1"/>
+        </Style>
+        <Style TargetType="ListViewItem">
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListViewItem">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="6" Margin="2,1" Padding="4,5">
+                            <GridViewRowPresenter VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#162238"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#1E3A8A"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Modern Dark Inputs -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#0A0E18"/>
+            <Setter Property="Foreground" Value="#F8FAFC"/>
+            <Setter Property="BorderBrush" Value="#1E2D4A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="CaretBrush" Value="#38BDF8"/>
+        </Style>
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#0A0E18"/>
+            <Setter Property="Foreground" Value="#0A0E18"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+    </Window.Resources>
+
+    <!-- Main Grid Layout (Left Sidebar + Right Responsive Workspace) -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="220"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- ================================================================== -->
+        <!-- LEFT SIDEBAR NAVIGATION RAIL                                       -->
+        <!-- ================================================================== -->
+        <Border Grid.Column="0" Background="#0C101A" BorderBrush="#1A2438" BorderThickness="0,0,1,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="80"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- App Brand / Header -->
+                <StackPanel Grid.Row="0" Margin="18,18,18,0">
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="26" Height="26" CornerRadius="6" Background="#0284C7" Margin="0,0,10,0">
+                            <TextBlock Text="🛡" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock Text="DATACONTROL" Foreground="#38BDF8" FontWeight="Bold" FontSize="16" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Text="Windows 11 Pro Sentry" Foreground="#64748B" FontSize="10.5" Margin="36,2,0,0"/>
+                </StackPanel>
+
+                <!-- Navigation Menu Buttons -->
+                <StackPanel Grid.Row="1" Margin="4,10,4,0">
+                    <Button x:Name="BtnNavDashboard" Content="📊  Dashboard" Style="{StaticResource NavBtn}"/>
+                    <Button x:Name="BtnNavLiveApps" Content="⚡  Live Apps" Style="{StaticResource NavBtn}"/>
+                    <Button x:Name="BtnNavAppHistory" Content="📈  App History" Style="{StaticResource NavBtn}"/>
+                    <Button x:Name="BtnNavAnalytics" Content="📅  Analytics" Style="{StaticResource NavBtn}"/>
+                    <Button x:Name="BtnNavFirewall" Content="🛡️  Firewall Rules" Style="{StaticResource NavBtn}"/>
+                    <Button x:Name="BtnNavSettings" Content="⚙️  Settings" Style="{StaticResource NavBtn}"/>
+                </StackPanel>
+
+                <!-- Sidebar Footer Status & Quick Actions -->
+                <StackPanel Grid.Row="2" Margin="14,0,14,16">
+                    <Border CornerRadius="8" Background="#131B2E" BorderBrush="#1E2D4A" BorderThickness="1" Padding="12,10" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock x:Name="SidebarSentryStatus" Text="● SENTRY ACTIVE" Foreground="#10B981" FontWeight="Bold" FontSize="11"/>
+                            <TextBlock x:Name="SidebarAdapterLabel" Text="Target: Wi-Fi" Foreground="#94A3B8" FontSize="11" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Border>
+                    <Button x:Name="BtnSidebarToggleWifi" Content="⚡ Toggle Adapter" Style="{StaticResource SecondaryBtn}" Margin="0,0,0,6"/>
+                    <Button x:Name="BtnSidebarExit" Content="Exit DataControl" Style="{StaticResource SecondaryBtn}" Foreground="#F43F5E"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ================================================================== -->
+        <!-- RIGHT WORKSPACE: DYNAMIC RESPONSIVE CONTENT AREA                   -->
+        <!-- ================================================================== -->
+        <Grid Grid.Column="1" Background="#0A0E17">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="64"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Top Header Bar -->
+            <Border Grid.Row="0" Background="#0C101A" BorderBrush="#1A2438" BorderThickness="0,0,0,1" Padding="24,0">
+                <Grid VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="WorkspaceTitle" Text="System Dashboard &amp; Dual Quotas" Foreground="#F8FAFC" FontWeight="Bold" FontSize="17"/>
+                        <TextBlock x:Name="WorkspaceSubtitle" Text="Real-time telemetry, auto-cutoff, and metered connection protection" Foreground="#64748B" FontSize="11.5"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border x:Name="BadgeLinkStatus" CornerRadius="6" Background="#064E3B" Padding="10,4" Margin="0,0,12,0">
+                            <TextBlock x:Name="TxtLinkStatus" Text="● CONNECTED" Foreground="#10B981" FontWeight="Bold" FontSize="11"/>
+                        </Border>
+                        <Border CornerRadius="6" Background="#131B2E" BorderBrush="#1E2D4A" BorderThickness="1" Padding="12,4">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Speed: " Foreground="#94A3B8" FontSize="11" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="TxtLiveSpeedTop" Text="0.00 KB/s" Foreground="#38BDF8" FontWeight="Bold" FontSize="12.5" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Dynamic In-App Toast Notification Banner -->
+            <Border x:Name="ToastBanner" Grid.Row="1" Background="#064E3B" BorderBrush="#10B981" BorderThickness="1" CornerRadius="8" Margin="24,12,24,0" Padding="14,10" Visibility="Collapsed">
+                <TextBlock x:Name="ToastText" Text="Settings saved successfully!" Foreground="#F8FAFC" FontSize="12.5" FontWeight="SemiBold"/>
+            </Border>
+
+            <!-- Active View Containers (Workspace Panels) -->
+            <Grid Grid.Row="2" Margin="24,16,24,20">
+
+                <!-- 1. DASHBOARD VIEW (Smooth ScrollViewer) -->
+                <ScrollViewer x:Name="ViewDashboard" VerticalScrollBarVisibility="Auto" CanContentScroll="False" Visibility="Visible">
+                    <StackPanel>
+                        <!-- Hero Interface & Throughput Card -->
+                        <Border Style="{StaticResource ModernCard}" Margin="0,0,0,16">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="NETWORK INTERFACE &amp; THROUGHPUT SENTRY" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                        <TextBlock Text="Target Adapter:" Foreground="#F8FAFC" FontWeight="SemiBold" FontSize="13.5" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                                        <ComboBox x:Name="ComboAdapters" Width="200" Height="28"/>
+                                    </StackPanel>
+                                    <TextBlock x:Name="TxtAdapterDetails" Text="Status: Connected (Up) | Sentry active on Wi-Fi" Foreground="#64748B" FontSize="11.5" Margin="0,6,0,0"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <TextBlock Text="Live Speed" Foreground="#94A3B8" FontSize="11" HorizontalAlignment="Right"/>
+                                    <TextBlock x:Name="TxtHeroSpeed" Text="0.00 KB/s" Foreground="#38BDF8" FontWeight="Bold" FontSize="26" HorizontalAlignment="Right"/>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,6,0,0">
+                                        <Button x:Name="BtnDisableWifiHero" Content="Disable Adapter" Style="{StaticResource DangerBtn}" Padding="10,5" FontSize="11.5" Margin="0,0,8,0"/>
+                                        <Button x:Name="BtnEnableWifiHero" Content="Enable Adapter" Style="{StaticResource SuccessBtn}" Padding="10,5" FontSize="11.5"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- Responsive Dual Quota Cards (2-Column Proportional Grid) -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1*"/>
+                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="1*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Daily Quota Card -->
+                            <Border Grid.Column="0" Style="{StaticResource ModernCard}">
+                                <StackPanel>
+                                    <Grid>
+                                        <TextBlock Text="📅 DAILY QUOTA" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                        <TextBlock x:Name="TxtDailyPercent" Text="0.0%" Foreground="#38BDF8" FontWeight="Bold" FontSize="15" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <TextBlock x:Name="TxtDailyHero" Text="0.00 MB / 2.00 GB" Foreground="#F8FAFC" FontWeight="Bold" FontSize="22" Margin="0,6,0,0"/>
+                                    
+                                    <!-- Linear Gradient Progress Bar -->
+                                    <Border Background="#0E1422" CornerRadius="7" BorderBrush="#1E2D4A" BorderThickness="1" Height="14" Margin="0,10,0,0">
+                                        <Grid>
+                                            <Border x:Name="BarDailyFill" HorizontalAlignment="Left" Width="10" CornerRadius="6">
+                                                <Border.Background>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                        <GradientStop Color="#0284C7" Offset="0.0"/>
+                                                        <GradientStop Color="#38BDF8" Offset="1.0"/>
+                                                    </LinearGradientBrush>
+                                                </Border.Background>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+
+                                    <TextBlock x:Name="TxtDailyRemaining" Text="Remaining Today: 2.00 GB" Foreground="#64748B" FontSize="11.5" Margin="0,8,0,0"/>
+                                    <CheckBox x:Name="ToggleDailyCutoff" Content="Auto-disconnect Wi-Fi when daily quota reached" Style="{StaticResource ModernToggle}" Margin="0,12,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Monthly Quota Card -->
+                            <Border Grid.Column="2" Style="{StaticResource ModernCard}">
+                                <StackPanel>
+                                    <Grid>
+                                        <TextBlock Text="🌐 MONTHLY QUOTA" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                        <TextBlock x:Name="TxtMonthlyPercent" Text="0.0%" Foreground="#10B981" FontWeight="Bold" FontSize="15" HorizontalAlignment="Right"/>
+                                    </Grid>
+                                    <TextBlock x:Name="TxtMonthlyHero" Text="0.00 GB / 16.00 GB" Foreground="#F8FAFC" FontWeight="Bold" FontSize="22" Margin="0,6,0,0"/>
+
+                                    <!-- Linear Gradient Progress Bar -->
+                                    <Border Background="#0E1422" CornerRadius="7" BorderBrush="#1E2D4A" BorderThickness="1" Height="14" Margin="0,10,0,0">
+                                        <Grid>
+                                            <Border x:Name="BarMonthlyFill" HorizontalAlignment="Left" Width="10" CornerRadius="6">
+                                                <Border.Background>
+                                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                                        <GradientStop Color="#059669" Offset="0.0"/>
+                                                        <GradientStop Color="#10B981" Offset="1.0"/>
+                                                    </LinearGradientBrush>
+                                                </Border.Background>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+
+                                    <TextBlock x:Name="TxtMonthlyRemaining" Text="Remaining This Month: 16.00 GB" Foreground="#64748B" FontSize="11.5" Margin="0,8,0,0"/>
+                                    <CheckBox x:Name="ToggleMonthlyCutoff" Content="Auto-disconnect Wi-Fi when monthly quota reached" Style="{StaticResource ModernToggle}" Margin="0,12,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- Top Consuming Active Processes Quick Preview -->
+                        <Border Style="{StaticResource ModernCard}">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <TextBlock Text="⚡ TOP LIVE BANDWIDTH CONSUMERS" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                    <TextBlock Text="Live Sentry Sample" Foreground="#64748B" FontSize="11" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <ListView x:Name="ListDashboardTopApps" Height="150">
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Header="Application" Width="220" DisplayMemberBinding="{Binding Path=Name}"/>
+                                            <GridViewColumn Header="PID" Width="70" DisplayMemberBinding="{Binding Path=PID}"/>
+                                            <GridViewColumn Header="Transfer Speed" Width="120" DisplayMemberBinding="{Binding Path=Speed}"/>
+                                            <GridViewColumn Header="Session Total" Width="120" DisplayMemberBinding="{Binding Path=SessionBytes}"/>
+                                            <GridViewColumn Header="Sockets" Width="70" DisplayMemberBinding="{Binding Path=Sockets}"/>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- 2. LIVE APPS VIEW -->
+                <Grid x:Name="ViewLiveApps" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Filter / Search Header -->
+                    <Border Grid.Row="0" Style="{StaticResource ModernCard}" Padding="14,10" Margin="0,0,0,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="280"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="🔍 Filter Processes: " Foreground="#94A3B8" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <TextBox x:Name="TxtLiveSearch" Grid.Column="1" Height="28"/>
+                            <TextBlock Grid.Column="2" Text="Type application name or executable path to filter in real-time" Foreground="#64748B" FontSize="11" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                            <Button x:Name="BtnRefreshLive" Grid.Column="3" Content="🔄 Refresh Now" Style="{StaticResource SecondaryBtn}" Padding="12,5"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Live App ListView -->
+                    <ListView x:Name="ListLiveApps" Grid.Row="1">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Application Name" Width="190" DisplayMemberBinding="{Binding Path=Name}"/>
+                                <GridViewColumn Header="PID" Width="70" DisplayMemberBinding="{Binding Path=PID}"/>
+                                <GridViewColumn Header="Live Speed" Width="120" DisplayMemberBinding="{Binding Path=Speed}"/>
+                                <GridViewColumn Header="Session Total" Width="120" DisplayMemberBinding="{Binding Path=SessionBytes}"/>
+                                <GridViewColumn Header="Sockets" Width="75" DisplayMemberBinding="{Binding Path=Sockets}"/>
+                                <GridViewColumn Header="Executable Path" Width="360" DisplayMemberBinding="{Binding Path=Path}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+
+                    <!-- Bottom Action Controls -->
+                    <Border Grid.Row="2" Style="{StaticResource ModernCard}" Padding="14,10" Margin="0,12,0,0">
+                        <Grid>
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="BtnBlockLiveApp" Content="🚫 Block Selected App in Firewall" Style="{StaticResource DangerBtn}" Margin="0,0,12,0"/>
+                                <TextBlock x:Name="TxtLiveBlockStatus" Text="" Foreground="#10B981" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <TextBlock Text="Blocks outbound network access for selected executable in Windows Defender Firewall" Foreground="#64748B" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- 3. APP HISTORY VIEW -->
+                <Grid x:Name="ViewAppHistory" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <Border Grid.Row="0" Style="{StaticResource ModernCard}" Padding="14,10" Margin="0,0,0,12">
+                        <Grid>
+                            <StackPanel>
+                                <TextBlock Text="APPLICATION DATA CONSUMPTION LEADERBOARD" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                <TextBlock Text="Cumulative data ledger across reboots. Select any application to block it." Foreground="#64748B" FontSize="11.5" Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button x:Name="BtnResetAppHistory" Content="🗑️ Reset App History" Style="{StaticResource SecondaryBtn}" Padding="12,6"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <ListView x:Name="ListAppHistory" Grid.Row="1">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Application Name" Width="200" DisplayMemberBinding="{Binding Path=Name}"/>
+                                <GridViewColumn Header="Total Consumed" Width="140" DisplayMemberBinding="{Binding Path=TotalBytes}"/>
+                                <GridViewColumn Header="Last Seen Timestamp" Width="160" DisplayMemberBinding="{Binding Path=LastSeen}"/>
+                                <GridViewColumn Header="Executable Path" Width="380" DisplayMemberBinding="{Binding Path=Path}"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+
+                    <Border Grid.Row="2" Style="{StaticResource ModernCard}" Padding="14,10" Margin="0,12,0,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="BtnBlockHistoryApp" Content="🚫 Block Selected App in Firewall" Style="{StaticResource DangerBtn}" Margin="0,0,12,0"/>
+                            <TextBlock x:Name="TxtHistoryBlockStatus" Text="" Foreground="#10B981" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <!-- 4. ANALYTICS & BILLING CYCLE VIEW -->
+                <ScrollViewer x:Name="ViewAnalytics" VerticalScrollBarVisibility="Auto" CanContentScroll="False" Visibility="Collapsed">
+                    <StackPanel>
+                        <!-- 3 Hero Metric Cards -->
+                        <Grid Margin="0,0,0,16">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="1*"/>
+                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="1*"/>
+                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="1*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Style="{StaticResource ModernCard}">
+                                <StackPanel>
+                                    <TextBlock Text="TODAY" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                    <TextBlock x:Name="TxtAnalyticsToday" Text="0.00 MB" Foreground="#38BDF8" FontWeight="Bold" FontSize="24" Margin="0,6,0,0"/>
+                                    <TextBlock x:Name="TxtAnalyticsTodaySub" Text="2026-09-29" Foreground="#64748B" FontSize="11" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="2" Style="{StaticResource ModernCard}">
+                                <StackPanel>
+                                    <TextBlock Text="THIS MONTH" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                    <TextBlock x:Name="TxtAnalyticsMonth" Text="0.00 GB" Foreground="#10B981" FontWeight="Bold" FontSize="24" Margin="0,6,0,0"/>
+                                    <TextBlock x:Name="TxtAnalyticsMonthSub" Text="September 2026" Foreground="#64748B" FontSize="11" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Grid.Column="4" Style="{StaticResource ModernCard}">
+                                <StackPanel>
+                                    <TextBlock Text="THIS YEAR" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                    <TextBlock x:Name="TxtAnalyticsYear" Text="0.00 GB" Foreground="#F59E0B" FontWeight="Bold" FontSize="24" Margin="0,6,0,0"/>
+                                    <TextBlock x:Name="TxtAnalyticsYearSub" Text="2026" Foreground="#64748B" FontSize="11" Margin="0,4,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <!-- Billing Cycle Synchronization Card -->
+                        <Border Style="{StaticResource ModernCard}" Margin="0,0,0,16">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="BILLING CYCLE SYNCHRONIZATION" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                    <TextBlock Text="Reset monthly consumption metrics to 0 GB when your ISP or Cellular hotspot data cycle renews." Foreground="#64748B" FontSize="12" Margin="0,4,0,0"/>
+                                </StackPanel>
+                                <Button x:Name="BtnResetCurrentMonth" Grid.Column="1" Content="🔄 Reset Current Month to 0 GB" Style="{StaticResource SecondaryBtn}" VerticalAlignment="Center"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Daily Consumption History Table -->
+                        <Border Style="{StaticResource ModernCard}">
+                            <StackPanel>
+                                <TextBlock Text="HISTORICAL DAILY DATA CONSUMPTION" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11" Margin="0,0,0,10"/>
+                                <ListView x:Name="ListDailyHistory" Height="260">
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Header="Date" Width="180" DisplayMemberBinding="{Binding Path=Date}"/>
+                                            <GridViewColumn Header="Data Consumed" Width="200" DisplayMemberBinding="{Binding Path=Formatted}"/>
+                                            <GridViewColumn Header="Raw Transfer Bytes" Width="240" DisplayMemberBinding="{Binding Path=Raw}"/>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- 5. FIREWALL RULES VIEW -->
+                <ScrollViewer x:Name="ViewFirewall" VerticalScrollBarVisibility="Auto" CanContentScroll="False" Visibility="Collapsed">
+                    <StackPanel>
+                        <!-- Manual Executable Blocker Card -->
+                        <Border Style="{StaticResource ModernCard}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="MANUAL FIREWALL OUTBOUND BLOCKER" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                <TextBlock Text="Select any executable (.exe) on your computer to create an outbound block rule in Windows Defender Firewall." Foreground="#64748B" FontSize="11.5" Margin="0,3,0,10"/>
+                                
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="TxtFirewallExePath" Grid.Column="0" IsReadOnly="True" Height="30" Margin="0,0,8,0"/>
+                                    <Button x:Name="BtnBrowseExe" Grid.Column="1" Content="Browse..." Style="{StaticResource SecondaryBtn}" Height="30" Margin="0,0,8,0"/>
+                                    <Button x:Name="BtnBlockExeManual" Grid.Column="2" Content="🚫 Block Outbound Access" Style="{StaticResource DangerBtn}" Height="30"/>
+                                </Grid>
+                                <TextBlock x:Name="TxtFirewallManualStatus" Text="" Foreground="#10B981" FontWeight="SemiBold" FontSize="12" Margin="0,6,0,0"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Managed Rules Table -->
+                        <Border Style="{StaticResource ModernCard}">
+                            <StackPanel>
+                                <Grid Margin="0,0,0,10">
+                                    <TextBlock Text="ACTIVE DATACONTROL OUTBOUND BLOCK RULES" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11"/>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button x:Name="BtnUnblockRule" Content="✓ Unblock Selected" Style="{StaticResource SuccessBtn}" Padding="10,4" Margin="0,0,8,0"/>
+                                        <Button x:Name="BtnRefreshRules" Content="🔄 Refresh Rules" Style="{StaticResource SecondaryBtn}" Padding="10,4"/>
+                                    </StackPanel>
+                                </Grid>
+                                <ListView x:Name="ListFirewallRules" Height="320">
+                                    <ListView.View>
+                                        <GridView>
+                                            <GridViewColumn Header="Rule Display Name" Width="240" DisplayMemberBinding="{Binding Path=RuleName}"/>
+                                            <GridViewColumn Header="Program Executable Path" Width="400" DisplayMemberBinding="{Binding Path=ProgramPath}"/>
+                                            <GridViewColumn Header="Firewall Action" Width="100" DisplayMemberBinding="{Binding Path=Action}"/>
+                                        </GridView>
+                                    </ListView.View>
+                                </ListView>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- 6. SETTINGS VIEW -->
+                <ScrollViewer x:Name="ViewSettings" VerticalScrollBarVisibility="Auto" CanContentScroll="False" Visibility="Collapsed">
+                    <StackPanel>
+                        <Border Style="{StaticResource ModernCard}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="DUAL QUOTA CONFIGURATION &amp; THRESHOLDS" Foreground="#94A3B8" FontWeight="SemiBold" FontSize="11" Margin="0,0,0,12"/>
+                                
+                                <Grid Margin="0,0,0,14">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1*"/>
+                                        <ColumnDefinition Width="16"/>
+                                        <ColumnDefinition Width="1*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Daily Settings -->
+                                    <Border Grid.Column="0" Background="#0E1422" CornerRadius="8" BorderBrush="#1E2D4A" BorderThickness="1" Padding="14">
+                                        <StackPanel>
+                                            <TextBlock Text="Daily Quota Settings" Foreground="#38BDF8" FontWeight="Bold" FontSize="13" Margin="0,0,0,10"/>
+                                            <TextBlock Text="Daily Limit (GB):" Foreground="#94A3B8" FontSize="12"/>
+                                            <TextBox x:Name="InputDailyLimit" Height="28" Margin="0,4,0,10"/>
+
+                                            <TextBlock Text="Daily Warning Threshold (GB):" Foreground="#94A3B8" FontSize="12"/>
+                                            <TextBox x:Name="InputDailyWarn" Height="28" Margin="0,4,0,10"/>
+
+                                            <CheckBox x:Name="ChkSettingAutoDaily" Content="Cutoff: Disable Wi-Fi at Daily Limit" Style="{StaticResource ModernToggle}"/>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- Monthly Settings -->
+                                    <Border Grid.Column="2" Background="#0E1422" CornerRadius="8" BorderBrush="#1E2D4A" BorderThickness="1" Padding="14">
+                                        <StackPanel>
+                                            <TextBlock Text="Monthly Quota Settings" Foreground="#10B981" FontWeight="Bold" FontSize="13" Margin="0,0,0,10"/>
+                                            <TextBlock Text="Monthly Limit (GB):" Foreground="#94A3B8" FontSize="12"/>
+                                            <TextBox x:Name="InputMonthlyLimit" Height="28" Margin="0,4,0,10"/>
+
+                                            <TextBlock Text="Monthly Warning Threshold (GB):" Foreground="#94A3B8" FontSize="12"/>
+                                            <TextBox x:Name="InputMonthlyWarn" Height="28" Margin="0,4,0,10"/>
+
+                                            <CheckBox x:Name="ChkSettingAutoMonthly" Content="Cutoff: Disable Wi-Fi at Monthly Limit" Style="{StaticResource ModernToggle}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+
+                                <!-- Hardware & Startup Policies -->
+                                <Border Background="#0E1422" CornerRadius="8" BorderBrush="#1E2D4A" BorderThickness="1" Padding="14" Margin="0,0,0,16">
+                                    <StackPanel>
+                                        <TextBlock Text="System Startup &amp; Sentry Daemon" Foreground="#F8FAFC" FontWeight="Bold" FontSize="13" Margin="0,0,0,10"/>
+                                        <CheckBox x:Name="ChkSettingStartWithWindows" Content="Start with Windows Logon (Runs silently in background with highest Administrator privileges)" Style="{StaticResource ModernToggle}" Margin="0,0,0,10"/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Poll Frequency (seconds): " Foreground="#94A3B8" FontSize="12" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                            <TextBox x:Name="InputPollSeconds" Width="80" Height="26"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="BtnSaveAllSettings" Content="💾 Save All Quota &amp; System Settings" Style="{StaticResource PrimaryBtn}" Padding="20,10"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>
+'@
+
+# Parse XAML
+$sr = New-Object System.IO.StringReader($xaml)
+$xr = [System.Xml.XmlReader]::Create($sr)
+$Window = [System.Windows.Markup.XamlReader]::Load($xr)
+
+# Wire Controls by Name
+$BtnNavDashboard          = $Window.FindName("BtnNavDashboard")
+$BtnNavLiveApps           = $Window.FindName("BtnNavLiveApps")
+$BtnNavAppHistory         = $Window.FindName("BtnNavAppHistory")
+$BtnNavAnalytics          = $Window.FindName("BtnNavAnalytics")
+$BtnNavFirewall           = $Window.FindName("BtnNavFirewall")
+$BtnNavSettings           = $Window.FindName("BtnNavSettings")
+$BtnSidebarToggleWifi     = $Window.FindName("BtnSidebarToggleWifi")
+$BtnSidebarExit           = $Window.FindName("BtnSidebarExit")
+
+$WorkspaceTitle           = $Window.FindName("WorkspaceTitle")
+$WorkspaceSubtitle        = $Window.FindName("WorkspaceSubtitle")
+$TxtLinkStatus            = $Window.FindName("TxtLinkStatus")
+$BadgeLinkStatus          = $Window.FindName("BadgeLinkStatus")
+$TxtLiveSpeedTop          = $Window.FindName("TxtLiveSpeedTop")
+$ToastBanner              = $Window.FindName("ToastBanner")
+$ToastText                = $Window.FindName("ToastText")
+
+$ViewDashboard            = $Window.FindName("ViewDashboard")
+$ViewLiveApps             = $Window.FindName("ViewLiveApps")
+$ViewAppHistory           = $Window.FindName("ViewAppHistory")
+$ViewAnalytics            = $Window.FindName("ViewAnalytics")
+$ViewFirewall             = $Window.FindName("ViewFirewall")
+$ViewSettings             = $Window.FindName("ViewSettings")
+
+# Dashboard Controls
+$ComboAdapters            = $Window.FindName("ComboAdapters")
+$TxtAdapterDetails        = $Window.FindName("TxtAdapterDetails")
+$TxtHeroSpeed             = $Window.FindName("TxtHeroSpeed")
+$BtnDisableWifiHero       = $Window.FindName("BtnDisableWifiHero")
+$BtnEnableWifiHero        = $Window.FindName("BtnEnableWifiHero")
+$TxtDailyPercent          = $Window.FindName("TxtDailyPercent")
+$TxtDailyHero             = $Window.FindName("TxtDailyHero")
+$BarDailyFill             = $Window.FindName("BarDailyFill")
+$TxtDailyRemaining        = $Window.FindName("TxtDailyRemaining")
+$ToggleDailyCutoff        = $Window.FindName("ToggleDailyCutoff")
+$TxtMonthlyPercent        = $Window.FindName("TxtMonthlyPercent")
+$TxtMonthlyHero           = $Window.FindName("TxtMonthlyHero")
+$BarMonthlyFill           = $Window.FindName("BarMonthlyFill")
+$TxtMonthlyRemaining      = $Window.FindName("TxtMonthlyRemaining")
+$ToggleMonthlyCutoff      = $Window.FindName("ToggleMonthlyCutoff")
+$ListDashboardTopApps     = $Window.FindName("ListDashboardTopApps")
+
+# Live Apps Controls
+$TxtLiveSearch            = $Window.FindName("TxtLiveSearch")
+$BtnRefreshLive           = $Window.FindName("BtnRefreshLive")
+$ListLiveApps             = $Window.FindName("ListLiveApps")
+$BtnBlockLiveApp          = $Window.FindName("BtnBlockLiveApp")
+$TxtLiveBlockStatus       = $Window.FindName("TxtLiveBlockStatus")
+
+# History Controls
+$BtnResetAppHistory       = $Window.FindName("BtnResetAppHistory")
+$ListAppHistory           = $Window.FindName("ListAppHistory")
+$BtnBlockHistoryApp       = $Window.FindName("BtnBlockHistoryApp")
+$TxtHistoryBlockStatus    = $Window.FindName("TxtHistoryBlockStatus")
+
+# Analytics Controls
+$TxtAnalyticsToday        = $Window.FindName("TxtAnalyticsToday")
+$TxtAnalyticsTodaySub     = $Window.FindName("TxtAnalyticsTodaySub")
+$TxtAnalyticsMonth        = $Window.FindName("TxtAnalyticsMonth")
+$TxtAnalyticsMonthSub     = $Window.FindName("TxtAnalyticsMonthSub")
+$TxtAnalyticsYear         = $Window.FindName("TxtAnalyticsYear")
+$TxtAnalyticsYearSub      = $Window.FindName("TxtAnalyticsYearSub")
+$BtnResetCurrentMonth     = $Window.FindName("BtnResetCurrentMonth")
+$ListDailyHistory         = $Window.FindName("ListDailyHistory")
+
+# Firewall Controls
+$TxtFirewallExePath       = $Window.FindName("TxtFirewallExePath")
+$BtnBrowseExe             = $Window.FindName("BtnBrowseExe")
+$BtnBlockExeManual        = $Window.FindName("BtnBlockExeManual")
+$TxtFirewallManualStatus  = $Window.FindName("TxtFirewallManualStatus")
+$ListFirewallRules        = $Window.FindName("ListFirewallRules")
+$BtnUnblockRule           = $Window.FindName("BtnUnblockRule")
+$BtnRefreshRules          = $Window.FindName("BtnRefreshRules")
+
+# Settings Controls
+$InputDailyLimit          = $Window.FindName("InputDailyLimit")
+$InputDailyWarn           = $Window.FindName("InputDailyWarn")
+$ChkSettingAutoDaily      = $Window.FindName("ChkSettingAutoDaily")
+$InputMonthlyLimit        = $Window.FindName("InputMonthlyLimit")
+$InputMonthlyWarn         = $Window.FindName("InputMonthlyWarn")
+$ChkSettingAutoMonthly    = $Window.FindName("ChkSettingAutoMonthly")
+$ChkSettingStartWithWindows = $Window.FindName("ChkSettingStartWithWindows")
+$InputPollSeconds         = $Window.FindName("InputPollSeconds")
+$BtnSaveAllSettings       = $Window.FindName("BtnSaveAllSettings")
+
+# Sidebar Elements
+$SidebarSentryStatus      = $Window.FindName("SidebarSentryStatus")
+$SidebarAdapterLabel      = $Window.FindName("SidebarAdapterLabel")
+
+# ==============================================================================
+# System Tray Integration (Desktop Background Resident)
+# ==============================================================================
+$AppCustomIcon = $null
+if (Test-Path $IconPath) {
+    try { $AppCustomIcon = New-Object System.Drawing.Icon($IconPath) } catch {}
+}
+
+$NotifyIcon = New-Object System.Windows.Forms.NotifyIcon
+if ($AppCustomIcon) {
+    $NotifyIcon.Icon = $AppCustomIcon
+} else {
+    $NotifyIcon.Icon = [System.Drawing.SystemIcons]::Shield
+}
+$NotifyIcon.Text = "DataControl - Sentry Active"
+$NotifyIcon.Visible = $true
+
+$TrayMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$TrayMenuItemShow = $TrayMenu.Items.Add("Open DataControl Dashboard")
+$TrayMenuItemShow.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$TrayMenuItemShow.Add_Click({
+    $Window.Show()
+    $Window.WindowState = [System.Windows.WindowState]::Normal
+    $Window.ShowInTaskbar = $true
+    $Window.Activate()
+})
+
+$TrayMenu.Items.Add("-") | Out-Null
+$TrayItemStatusToday = $TrayMenu.Items.Add("Today: Calculating...")
+$TrayItemStatusMonth = $TrayMenu.Items.Add("Month: Calculating...")
+$TrayMenu.Items.Add("-") | Out-Null
+
+$TrayMenuItemToggleWifi = $TrayMenu.Items.Add("Toggle Target Adapter")
+$TrayMenuItemToggleWifi.Add_Click({
+    Toggle-TargetAdapterHardware
+})
+
+$TrayMenu.Items.Add("-") | Out-Null
+$TrayMenuItemExit = $TrayMenu.Items.Add("Exit DataControl")
+$TrayMenuItemExit.Add_Click({
+    $script:AllowRealExit = $true
+    $Window.Close()
+})
+$NotifyIcon.ContextMenuStrip = $TrayMenu
+
+$RestoreAction = {
+    $Window.Show()
+    $Window.WindowState = [System.Windows.WindowState]::Normal
+    $Window.ShowInTaskbar = $true
+    $Window.Activate()
+}
+$NotifyIcon.Add_DoubleClick($RestoreAction)
+$NotifyIcon.Add_Click({
+    param($s, $e)
+    if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+        & $RestoreAction
     }
 })
 
 # ==============================================================================
-# UI Event Handlers
+# Dynamic UI & State Binding Functions
+# ==============================================================================
+function Show-Toast ([string]$message, [string]$colorHex = "#10B981") {
+    $ToastText.Text = $message
+    $ToastBanner.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#064E3B"))
+    $ToastBanner.BorderBrush = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString($colorHex))
+    $ToastBanner.Visibility = [System.Windows.Visibility]::Visible
+
+    $toastTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $toastTimer.Interval = [TimeSpan]::FromSeconds(3)
+    $toastTimer.Add_Tick({
+        $ToastBanner.Visibility = [System.Windows.Visibility]::Collapsed
+        $toastTimer.Stop()
+    })
+    $toastTimer.Start()
+}
+
+function Set-ActiveView ([string]$viewName) {
+    $views = @($ViewDashboard, $ViewLiveApps, $ViewAppHistory, $ViewAnalytics, $ViewFirewall, $ViewSettings)
+    foreach ($v in $views) { $v.Visibility = [System.Windows.Visibility]::Collapsed }
+
+    $navButtons = @($BtnNavDashboard, $BtnNavLiveApps, $BtnNavAppHistory, $BtnNavAnalytics, $BtnNavFirewall, $BtnNavSettings)
+    foreach ($b in $navButtons) {
+        $b.Background = [System.Windows.Media.Brushes]::Transparent
+        $b.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#94A3B8"))
+    }
+
+    $activeBrush = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#162035"))
+    $activeFg = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F8FAFC"))
+
+    switch ($viewName) {
+        "Dashboard" {
+            $ViewDashboard.Visibility = [System.Windows.Visibility]::Visible
+            $BtnNavDashboard.Background = $activeBrush
+            $BtnNavDashboard.Foreground = $activeFg
+            $WorkspaceTitle.Text = "System Dashboard & Dual Quotas"
+            $WorkspaceSubtitle.Text = "Real-time telemetry, auto-cutoff, and metered connection protection"
+        }
+        "LiveApps" {
+            $ViewLiveApps.Visibility = [System.Windows.Visibility]::Visible
+            $BtnNavLiveApps.Background = $activeBrush
+            $BtnNavLiveApps.Foreground = $activeFg
+            $WorkspaceTitle.Text = "Live Application Bandwidth Sentry"
+            $WorkspaceSubtitle.Text = "Real-time per-process socket tracking and instantaneous firewall blocking"
+            Refresh-LiveAppsList
+        }
+        "AppHistory" {
+            $ViewAppHistory.Visibility = [System.Windows.Visibility]::Visible
+            $BtnNavAppHistory.Background = $activeBrush
+            $BtnNavAppHistory.Foreground = $activeFg
+            $WorkspaceTitle.Text = "Application Consumption Leaderboard"
+            $WorkspaceSubtitle.Text = "Cumulative historical network usage ledger across all reboots and sessions"
+            Refresh-AppHistoryList
+        }
+        "Analytics" {
+            $ViewAnalytics.Visibility = [System.Windows.Visibility]::Visible
+            $BtnNavAnalytics.Background = $activeBrush
+            $BtnNavAnalytics.Foreground = $activeFg
+            $WorkspaceTitle.Text = "Usage Analytics & Billing Cycle"
+            $WorkspaceSubtitle.Text = "Daily, monthly, and yearly historical consumption breakdown and billing renewal reset"
+            Refresh-AnalyticsDisplay
+        }
+        "Firewall" {
+            $ViewFirewall.Visibility = [System.Windows.Visibility]::Visible
+            $BtnNavFirewall.Background = $activeBrush
+            $BtnNavFirewall.Foreground = $activeFg
+            $WorkspaceTitle.Text = "Windows Defender Firewall Blocker"
+            $WorkspaceSubtitle.Text = "Manage active outbound block rules and target custom executable binaries"
+            Refresh-FirewallRulesList
+        }
+        "Settings" {
+            $ViewSettings.Visibility = [System.Windows.Visibility]::Visible
+            $BtnNavSettings.Background = $activeBrush
+            $BtnNavSettings.Foreground = $activeFg
+            $WorkspaceTitle.Text = "Quota Policies & System Daemon"
+            $WorkspaceSubtitle.Text = "Configure daily/monthly cutoff thresholds, background polling, and Windows startup"
+            Refresh-SettingsInputs
+        }
+    }
+}
+
+function Refresh-AdapterList {
+    $ComboAdapters.Items.Clear()
+    try {
+        $adapters = Get-NetAdapter -ErrorAction SilentlyContinue | Sort-Object -Property @{
+            Expression = {
+                if ($_.PhysicalMediaType -match "802.11" -or $_.MediaType -match "Native 802.11" -or $_.Name -like "*Wi-Fi*") { 0 } else { 1 }
+            }
+        }, Name
+
+        foreach ($a in $adapters) {
+            [void]$ComboAdapters.Items.Add($a.Name)
+        }
+
+        if ($ComboAdapters.Items.Contains($script:AppConfig.target_adapter)) {
+            $ComboAdapters.SelectedItem = $script:AppConfig.target_adapter
+        } elseif ($ComboAdapters.Items.Count -gt 0) {
+            $ComboAdapters.SelectedIndex = 0
+            $script:AppConfig.target_adapter = [string]$ComboAdapters.SelectedItem
+            Save-AppConfig $script:AppConfig
+        }
+    } catch {
+        [void]$ComboAdapters.Items.Add("Wi-Fi")
+        $ComboAdapters.SelectedIndex = 0
+    }
+}
+
+function Refresh-AdapterStatus {
+    $sel = [string]$ComboAdapters.SelectedItem
+    if (-not $sel) { $sel = $script:AppConfig.target_adapter }
+    $SidebarAdapterLabel.Text = "Target: $sel"
+
+    try {
+        $adapter = Get-NetAdapter -Name $sel -ErrorAction SilentlyContinue
+        if ($adapter) {
+            if ($adapter.Status -eq "Up") {
+                $TxtLinkStatus.Text = "● CONNECTED (UP)"
+                $TxtLinkStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+                $BadgeLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#064E3B"))
+                $TxtAdapterDetails.Text = "Status: Connected (Up) | Sentry active on $sel"
+            } elseif ($adapter.Status -eq "Disabled") {
+                $TxtLinkStatus.Text = "● DISABLED"
+                $TxtLinkStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
+                $BadgeLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#4C0519"))
+                $TxtAdapterDetails.Text = "Status: Disabled | Network hardware is disabled"
+            } else {
+                $TxtLinkStatus.Text = "● $($adapter.Status.ToUpper())"
+                $TxtLinkStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
+                $BadgeLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#451A03"))
+                $TxtAdapterDetails.Text = "Status: $($adapter.Status) on $sel"
+            }
+        } else {
+            $TxtLinkStatus.Text = "● NOT FOUND"
+            $TxtLinkStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
+            $BadgeLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#4C0519"))
+            $TxtAdapterDetails.Text = "Adapter '$sel' was not found on this system."
+        }
+    } catch {
+        $TxtLinkStatus.Text = "● ERROR"
+    }
+}
+
+function Refresh-UsageDisplay {
+    $dateNow = Get-Date
+    $dayKey = $dateNow.ToString("yyyy-MM-dd")
+    $monthKey = $dateNow.ToString("yyyy-MM")
+    $yearKey = $dateNow.ToString("yyyy")
+
+    $dayBytes = 0.0
+    if ($script:DataHistory.daily.PSObject.Properties[$dayKey]) {
+        $dayBytes = [double]$script:DataHistory.daily.$dayKey
+    }
+
+    $monthBytes = 0.0
+    if ($script:DataHistory.monthly.PSObject.Properties[$monthKey]) {
+        $monthBytes = [double]$script:DataHistory.monthly.$monthKey
+    }
+
+    $yearBytes = 0.0
+    if ($script:DataHistory.yearly.PSObject.Properties[$yearKey]) {
+        $yearBytes = [double]$script:DataHistory.yearly.$yearKey
+    }
+
+    $dayGB = $dayBytes / 1GB
+    $monthGB = $monthBytes / 1GB
+
+    $dailyLimitGB = [double]$script:AppConfig.daily_limit_gb
+    $dailyWarnGB  = [double]$script:AppConfig.daily_warning_gb
+    $monthlyLimitGB = [double]$script:AppConfig.monthly_limit_gb
+    $monthlyWarnGB  = [double]$script:AppConfig.warning_threshold_gb
+
+    # Live Throughput
+    $rateBps = $script:CurrentThroughputBytesPerSec
+    $speedStr = if ($rateBps -ge 1MB) {
+        "$([math]::Round($rateBps / 1MB, 2)) MB/s"
+    } else {
+        "$([math]::Round($rateBps / 1KB, 1)) KB/s"
+    }
+    $TxtLiveSpeedTop.Text = $speedStr
+    $TxtHeroSpeed.Text = $speedStr
+
+    # 1. Daily Progress & Bar
+    $dailyPercent = 0.0
+    if ($dailyLimitGB -gt 0) {
+        $dailyPercent = [math]::Round(($dayGB / $dailyLimitGB) * 100.0, 1)
+    }
+    $TxtDailyPercent.Text = "$dailyPercent%"
+    $TxtDailyHero.Text = "$(Format-Bytes $dayBytes) / $dailyLimitGB GB"
+    $dailyRemain = [math]::Max(0.0, [math]::Round($dailyLimitGB - $dayGB, 2))
+    $TxtDailyRemaining.Text = "Remaining Today: $dailyRemain GB (Warning at $dailyWarnGB GB)"
+
+    # Compute progress bar fill width (relative to container ~350px)
+    $dailyClamp = [math]::Min(100.0, [math]::Max(0.0, $dailyPercent))
+    $barDailyWidth = [math]::Max(6.0, (380.0 * ($dailyClamp / 100.0)))
+    $BarDailyFill.Width = $barDailyWidth
+
+    if ($dayGB -ge $dailyLimitGB) {
+        $TxtDailyPercent.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
+        $BarDailyFill.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
+    } elseif ($dayGB -ge $dailyWarnGB) {
+        $TxtDailyPercent.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
+        $BarDailyFill.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
+    } else {
+        $TxtDailyPercent.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#38BDF8"))
+        $grad = New-Object System.Windows.Media.LinearGradientBrush(
+            [System.Windows.Media.ColorConverter]::ConvertFromString("#0284C7"),
+            [System.Windows.Media.ColorConverter]::ConvertFromString("#38BDF8"),
+            (New-Object System.Windows.Point(0,0)),
+            (New-Object System.Windows.Point(1,0))
+        )
+        $BarDailyFill.Background = $grad
+    }
+
+    # 2. Monthly Progress & Bar
+    $monthlyPercent = 0.0
+    if ($monthlyLimitGB -gt 0) {
+        $monthlyPercent = [math]::Round(($monthGB / $monthlyLimitGB) * 100.0, 1)
+    }
+    $TxtMonthlyPercent.Text = "$monthlyPercent%"
+    $TxtMonthlyHero.Text = "$([math]::Round($monthGB, 2)) GB / $monthlyLimitGB GB"
+    $monthlyRemain = [math]::Max(0.0, [math]::Round($monthlyLimitGB - $monthGB, 2))
+    $TxtMonthlyRemaining.Text = "Remaining This Month: $monthlyRemain GB (Warning at $monthlyWarnGB GB)"
+
+    $monthlyClamp = [math]::Min(100.0, [math]::Max(0.0, $monthlyPercent))
+    $barMonthlyWidth = [math]::Max(6.0, (380.0 * ($monthlyClamp / 100.0)))
+    $BarMonthlyFill.Width = $barMonthlyWidth
+
+    if ($monthGB -ge $monthlyLimitGB) {
+        $TxtMonthlyPercent.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
+        $BarMonthlyFill.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
+    } elseif ($monthGB -ge $monthlyWarnGB) {
+        $TxtMonthlyPercent.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
+        $BarMonthlyFill.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
+    } else {
+        $TxtMonthlyPercent.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+        $gradM = New-Object System.Windows.Media.LinearGradientBrush(
+            [System.Windows.Media.ColorConverter]::ConvertFromString("#059669"),
+            [System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"),
+            (New-Object System.Windows.Point(0,0)),
+            (New-Object System.Windows.Point(1,0))
+        )
+        $BarMonthlyFill.Background = $gradM
+    }
+
+    # Tray Tooltip and Menu Labels
+    $trayStr = "DataControl: $(Format-Bytes $dayBytes) / $dailyLimitGB GB ($dailyPercent%) - Sentry Active"
+    if ($trayStr.Length -gt 63) { $trayStr = $trayStr.Substring(0, 63) }
+    $NotifyIcon.Text = $trayStr
+
+    $TrayItemStatusToday.Text = "Today: $(Format-Bytes $dayBytes) / $dailyLimitGB GB ($dailyPercent%)"
+    $TrayItemStatusMonth.Text = "Month: $([math]::Round($monthGB, 2)) GB / $monthlyLimitGB GB ($monthlyPercent%)"
+
+    # Refresh Top Apps preview on dashboard
+    $topApps = $script:ProcStateCache.Values | Sort-Object -Property SpeedBps, SessionBytes -Descending | Select-Object -First 4
+    $ListDashboardTopApps.Items.Clear()
+    foreach ($item in $topApps) {
+        $spStr = if ($item.SpeedBps -ge 1MB) { "$([math]::Round($item.SpeedBps / 1MB, 2)) MB/s" } elseif ($item.SpeedBps -ge 1KB) { "$([math]::Round($item.SpeedBps / 1KB, 1)) KB/s" } else { "0.0 KB/s" }
+        $ListDashboardTopApps.Items.Add([PSCustomObject]@{
+            Name         = $item.Name
+            PID          = $item.PID
+            Speed        = $spStr
+            SessionBytes = Format-Bytes $item.SessionBytes
+            Sockets      = $item.Connections
+            Path         = $item.Path
+        }) | Out-Null
+    }
+}
+
+function Refresh-LiveAppsList {
+    $filterText = $TxtLiveSearch.Text.Trim().ToLower()
+    $ListLiveApps.Items.Clear()
+
+    $sortedItems = $script:ProcStateCache.Values | Sort-Object -Property SpeedBps, SessionBytes -Descending
+
+    foreach ($item in $sortedItems) {
+        if ($filterText -and -not ($item.Name.ToLower().Contains($filterText) -or $item.Path.ToLower().Contains($filterText))) {
+            continue
+        }
+
+        $speedStr = if ($item.SpeedBps -ge 1MB) {
+            "$([math]::Round($item.SpeedBps / 1MB, 2)) MB/s"
+        } elseif ($item.SpeedBps -ge 1KB) {
+            "$([math]::Round($item.SpeedBps / 1KB, 1)) KB/s"
+        } else {
+            "0.0 KB/s"
+        }
+
+        $ListLiveApps.Items.Add([PSCustomObject]@{
+            Name         = $item.Name
+            PID          = $item.PID
+            Speed        = $speedStr
+            SessionBytes = Format-Bytes $item.SessionBytes
+            Sockets      = $item.Connections
+            Path         = $item.Path
+        }) | Out-Null
+    }
+}
+
+function Refresh-AppHistoryList {
+    $ListAppHistory.Items.Clear()
+    if ($script:AppHistory) {
+        $props = $script:AppHistory.PSObject.Properties | Sort-Object -Property @{
+            Expression = { [double]$_.Value.TotalBytes }
+        } -Descending
+
+        foreach ($prop in $props) {
+            $val = $prop.Value
+            $bytes = [double]$val.TotalBytes
+            $path = [string]$val.Path
+            $seen = [string]$val.LastSeen
+
+            $ListAppHistory.Items.Add([PSCustomObject]@{
+                Name       = $prop.Name
+                TotalBytes = Format-Bytes $bytes
+                LastSeen   = $seen
+                Path       = $path
+            }) | Out-Null
+        }
+    }
+}
+
+function Refresh-AnalyticsDisplay {
+    $dateNow = Get-Date
+    $dayKey = $dateNow.ToString("yyyy-MM-dd")
+    $monthKey = $dateNow.ToString("yyyy-MM")
+    $yearKey = $dateNow.ToString("yyyy")
+
+    $dayBytes = 0.0
+    if ($script:DataHistory.daily.PSObject.Properties[$dayKey]) { $dayBytes = [double]$script:DataHistory.daily.$dayKey }
+    $monthBytes = 0.0
+    if ($script:DataHistory.monthly.PSObject.Properties[$monthKey]) { $monthBytes = [double]$script:DataHistory.monthly.$monthKey }
+    $yearBytes = 0.0
+    if ($script:DataHistory.yearly.PSObject.Properties[$yearKey]) { $yearBytes = [double]$script:DataHistory.yearly.$yearKey }
+
+    $TxtAnalyticsToday.Text = Format-Bytes $dayBytes
+    $TxtAnalyticsTodaySub.Text = $dayKey
+    $TxtAnalyticsMonth.Text = Format-Bytes $monthBytes
+    $TxtAnalyticsMonthSub.Text = $dateNow.ToString("MMMM yyyy")
+    $TxtAnalyticsYear.Text = Format-Bytes $yearBytes
+    $TxtAnalyticsYearSub.Text = $yearKey
+
+    $ListDailyHistory.Items.Clear()
+    if ($script:DataHistory.daily) {
+        $props = $script:DataHistory.daily.PSObject.Properties | Sort-Object -Property Name -Descending
+        foreach ($prop in $props) {
+            $bytes = [double]$prop.Value
+            $ListDailyHistory.Items.Add([PSCustomObject]@{
+                Date       = $prop.Name
+                Formatted  = Format-Bytes $bytes
+                Raw        = ($bytes.ToString("N0") + " bytes")
+            }) | Out-Null
+        }
+    }
+}
+
+function Refresh-FirewallRulesList {
+    $ListFirewallRules.Items.Clear()
+    try {
+        $rules = Get-NetFirewallRule -DisplayName "DataControl-Block-*" -ErrorAction SilentlyContinue
+        foreach ($r in $rules) {
+            $progPath = ""
+            try {
+                $filter = $r | Get-NetFirewallApplicationFilter -ErrorAction SilentlyContinue
+                if ($filter -and $filter.Program) { $progPath = $filter.Program }
+            } catch {}
+
+            $ListFirewallRules.Items.Add([PSCustomObject]@{
+                RuleName    = $r.DisplayName
+                ProgramPath = $progPath
+                Action      = $r.Action.ToString()
+            }) | Out-Null
+        }
+    } catch {}
+}
+
+function Refresh-SettingsInputs {
+    $InputDailyLimit.Text = [string]$script:AppConfig.daily_limit_gb
+    $InputDailyWarn.Text = [string]$script:AppConfig.daily_warning_gb
+    $ChkSettingAutoDaily.IsChecked = [bool]$script:AppConfig.auto_disconnect_daily
+
+    $InputMonthlyLimit.Text = [string]$script:AppConfig.monthly_limit_gb
+    $InputMonthlyWarn.Text = [string]$script:AppConfig.warning_threshold_gb
+    $ChkSettingAutoMonthly.IsChecked = [bool]$script:AppConfig.auto_disconnect
+
+    $ChkSettingStartWithWindows.IsChecked = Test-StartupTaskEnabled
+    $InputPollSeconds.Text = [string]$script:AppConfig.poll_frequency_seconds
+}
+
+function Toggle-TargetAdapterHardware {
+    $target = [string]$ComboAdapters.SelectedItem
+    if (-not $target) { $target = $script:AppConfig.target_adapter }
+    try {
+        $cur = Get-NetAdapter -Name $target -ErrorAction SilentlyContinue
+        if ($cur.Status -eq "Up") {
+            Disable-NetAdapter -Name $target -Confirm:$false -ErrorAction Stop
+            Show-Toast "Adapter '$target' disabled." "#F43F5E"
+        } else {
+            Enable-NetAdapter -Name $target -Confirm:$false -ErrorAction Stop
+            Show-Toast "Adapter '$target' enabled." "#10B981"
+        }
+        Refresh-AdapterStatus
+    } catch {
+        Show-Toast "Hardware toggle failed: $($_.Exception.Message)" "#F43F5E"
+    }
+}
+
+# ==============================================================================
+# Event Handlers Setup
 # ==============================================================================
 
+# Navigation Handlers
+$BtnNavDashboard.Add_Click({ Set-ActiveView "Dashboard" })
+$BtnNavLiveApps.Add_Click({ Set-ActiveView "LiveApps" })
+$BtnNavAppHistory.Add_Click({ Set-ActiveView "AppHistory" })
+$BtnNavAnalytics.Add_Click({ Set-ActiveView "Analytics" })
+$BtnNavFirewall.Add_Click({ Set-ActiveView "Firewall" })
+$BtnNavSettings.Add_Click({ Set-ActiveView "Settings" })
+
 # Adapter ComboBox Selection Changed
-$ComboAdapters.Add_SelectedIndexChanged({
+$ComboAdapters.Add_SelectionChanged({
     $selected = [string]$ComboAdapters.SelectedItem
     if ($selected -and $selected -ne $script:AppConfig.target_adapter) {
         $script:AppConfig.target_adapter = $selected
         Save-AppConfig $script:AppConfig
-        Refresh-AdapterStatusLabel
+        Refresh-AdapterStatus
+        Show-Toast "Target adapter set to: $selected"
     }
 })
 
-# Save All Quota Settings
-$BtnSaveSettings.Add_Click({
-    $script:AppConfig.daily_limit_gb = [double]$NumDailyLimit.Value
-    $script:AppConfig.daily_warning_gb = [double]$NumDailyWarn.Value
-    $script:AppConfig.monthly_limit_gb = [double]$NumMonthlyLimit.Value
-    $script:AppConfig.warning_threshold_gb = [double]$NumMonthlyWarn.Value
-    $script:AppConfig.auto_disconnect_daily = [bool]$ChkAutoDisconnectDaily.Checked
-    $script:AppConfig.auto_disconnect = [bool]$ChkAutoDisconnectMonthly.Checked
-
-    $selected = [string]$ComboAdapters.SelectedItem
-    if ($selected) { $script:AppConfig.target_adapter = $selected }
-
-    $isTaskWanted = [bool]$ChkStartWithWindows.Checked
-    Set-StartupTaskEnabled $isTaskWanted | Out-Null
-    $TrayMenuItemStartup.Checked = $isTaskWanted
-
-    Save-AppConfig $script:AppConfig
-    Refresh-UsageDisplay
-
-    $LblSaveStatus.Text = "All settings saved successfully!"
-    $LblSaveStatus.ForeColor = $ColorSuccess
-    
-    $tempTimer = New-Object System.Windows.Forms.Timer
-    $tempTimer.Interval = 2500
-    $tempTimer.Add_Tick({
-        $LblSaveStatus.Text = ""
-        $tempTimer.Stop()
-        $tempTimer.Dispose()
-    })
-    $tempTimer.Start()
-})
-
-# Manual Disable Wi-Fi Button Click
-$BtnDisableWifi.Add_Click({
+# Hardware Controls
+$BtnSidebarToggleWifi.Add_Click({ Toggle-TargetAdapterHardware })
+$BtnDisableWifiHero.Add_Click({
     $target = [string]$ComboAdapters.SelectedItem
     if (-not $target) { $target = $script:AppConfig.target_adapter }
     try {
-        $LblManualStatus.Text = "Disabling $target..."
-        $LblManualStatus.ForeColor = $ColorWarning
-        [System.Windows.Forms.Application]::DoEvents()
         Disable-NetAdapter -Name $target -Confirm:$false -ErrorAction Stop
-        $LblManualStatus.Text = "$target successfully disabled."
-        $LblManualStatus.ForeColor = $ColorDanger
-    } catch {
-        $LblManualStatus.Text = "Error: $($_.Exception.Message)"
-        $LblManualStatus.ForeColor = $ColorDanger
-    }
-    Refresh-AdapterStatusLabel
+        Refresh-AdapterStatus
+        Show-Toast "Adapter '$target' disabled." "#F43F5E"
+    } catch { Show-Toast "Error: $($_.Exception.Message)" "#F43F5E" }
 })
-
-# Manual Enable Wi-Fi Button Click
-$BtnEnableWifi.Add_Click({
+$BtnEnableWifiHero.Add_Click({
     $target = [string]$ComboAdapters.SelectedItem
     if (-not $target) { $target = $script:AppConfig.target_adapter }
     try {
-        $LblManualStatus.Text = "Enabling $target..."
-        $LblManualStatus.ForeColor = $ColorWarning
-        [System.Windows.Forms.Application]::DoEvents()
         Enable-NetAdapter -Name $target -Confirm:$false -ErrorAction Stop
-        $LblManualStatus.Text = "$target successfully enabled."
-        $LblManualStatus.ForeColor = $ColorSuccess
-    } catch {
-        $LblManualStatus.Text = "Error: $($_.Exception.Message)"
-        $LblManualStatus.ForeColor = $ColorDanger
-    }
-    Refresh-AdapterStatusLabel
+        Refresh-AdapterStatus
+        Show-Toast "Adapter '$target' enabled." "#10B981"
+    } catch { Show-Toast "Error: $($_.Exception.Message)" "#F43F5E" }
 })
 
-# Live App Search Filter
-$TxtAppSearch.Add_TextChanged({
-    Refresh-LiveAppsList
+# Dashboard Cutoff Toggles
+$ToggleDailyCutoff.Add_Click({
+    $script:AppConfig.auto_disconnect_daily = [bool]$ToggleDailyCutoff.IsChecked
+    Save-AppConfig $script:AppConfig
+})
+$ToggleMonthlyCutoff.Add_Click({
+    $script:AppConfig.auto_disconnect = [bool]$ToggleMonthlyCutoff.IsChecked
+    Save-AppConfig $script:AppConfig
 })
 
-$BtnRefreshLiveApps.Add_Click({
-    Refresh-LiveAppsList
-})
+# Live Apps Search & Refresh
+$TxtLiveSearch.Add_TextChanged({ Refresh-LiveAppsList })
+$BtnRefreshLive.Add_Click({ Refresh-LiveAppsList })
 
 # Block Selected Live App
 $BtnBlockLiveApp.Add_Click({
-    if ($ListLiveApps.SelectedItems.Count -eq 0) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "Please select an application from the list to block.",
-            "No Application Selected",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Information
-        )
+    $item = $ListLiveApps.SelectedItem
+    if (-not $item) {
+        [System.Windows.MessageBox]::Show("Please select an application from the list to block.", "No Selection", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         return
     }
 
-    $item = $ListLiveApps.SelectedItems[0]
-    $appName = $item.Text
-    $appPath = [string]$item.Tag
-
+    $appName = $item.Name
+    $appPath = [string]$item.Path
     if (-not $appPath -or -not (Test-Path $appPath)) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "Could not resolve the executable path for $appName. Please locate it manually on the Firewall Blocker tab.",
-            "Executable Path Not Found",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Warning
-        )
+        [System.Windows.MessageBox]::Show("Could not resolve the executable path for $appName.", "Path Not Found", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
         return
     }
 
@@ -1853,11 +1911,7 @@ $BtnBlockLiveApp.Add_Click({
     $ruleName = "DataControl-Block-$cleanName"
 
     try {
-        $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-        if ($existing) {
-            Remove-NetFirewallRule -DisplayName $ruleName -Confirm:$false -ErrorAction SilentlyContinue
-        }
-
+        Remove-NetFirewallRule -DisplayName $ruleName -Confirm:$false -ErrorAction SilentlyContinue
         New-NetFirewallRule `
             -DisplayName $ruleName `
             -Name $ruleName `
@@ -1866,45 +1920,27 @@ $BtnBlockLiveApp.Add_Click({
             -Action Block `
             -Profile Any `
             -Description "Blocked by DataControl Live Sentry" `
-            -ErrorAction Stop
+            -ErrorAction Stop | Out-Null
 
-        $LblLiveAppBlockStatus.Text = "Blocked in Firewall: $appName"
-        $LblLiveAppBlockStatus.ForeColor = $ColorSuccess
-        [System.Windows.Forms.MessageBox]::Show(
-            "Application '$appName' has been blocked from outbound network access in Windows Defender Firewall.",
-            "Application Blocked",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Information
-        )
+        $TxtLiveBlockStatus.Text = "Blocked in Firewall: $appName"
+        Show-Toast "Application '$appName' blocked in Windows Defender Firewall!" "#10B981"
     } catch {
-        $LblLiveAppBlockStatus.Text = "Error: $($_.Exception.Message)"
-        $LblLiveAppBlockStatus.ForeColor = $ColorDanger
+        Show-Toast "Firewall Error: $($_.Exception.Message)" "#F43F5E"
     }
 })
 
-# Block Selected Historical App
-$BtnBlockHistApp.Add_Click({
-    if ($ListAppHistory.SelectedItems.Count -eq 0) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "Please select an application from the history list to block.",
-            "No Application Selected",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Information
-        )
+# Block Selected History App
+$BtnBlockHistoryApp.Add_Click({
+    $item = $ListAppHistory.SelectedItem
+    if (-not $item) {
+        [System.Windows.MessageBox]::Show("Please select an application from history to block.", "No Selection", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
         return
     }
 
-    $item = $ListAppHistory.SelectedItems[0]
-    $appName = $item.Text
-    $appPath = [string]$item.Tag
-
+    $appName = $item.Name
+    $appPath = [string]$item.Path
     if (-not $appPath -or -not (Test-Path $appPath)) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "Could not resolve the executable path for $appName.",
-            "Executable Path Not Found",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Warning
-        )
+        [System.Windows.MessageBox]::Show("Could not resolve path for $appName.", "Path Not Found", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
         return
     }
 
@@ -1912,11 +1948,7 @@ $BtnBlockHistApp.Add_Click({
     $ruleName = "DataControl-Block-$cleanName"
 
     try {
-        $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-        if ($existing) {
-            Remove-NetFirewallRule -DisplayName $ruleName -Confirm:$false -ErrorAction SilentlyContinue
-        }
-
+        Remove-NetFirewallRule -DisplayName $ruleName -Confirm:$false -ErrorAction SilentlyContinue
         New-NetFirewallRule `
             -DisplayName $ruleName `
             -Name $ruleName `
@@ -1925,100 +1957,58 @@ $BtnBlockHistApp.Add_Click({
             -Action Block `
             -Profile Any `
             -Description "Blocked by DataControl App History" `
-            -ErrorAction Stop
+            -ErrorAction Stop | Out-Null
 
-        $LblAppHistActionStatus.Text = "Blocked in Firewall: $appName"
-        $LblAppHistActionStatus.ForeColor = $ColorSuccess
-        [System.Windows.Forms.MessageBox]::Show(
-            "Application '$appName' has been blocked from outbound network access in Windows Defender Firewall.",
-            "Application Blocked",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Information
-        )
+        $TxtHistoryBlockStatus.Text = "Blocked: $appName"
+        Show-Toast "Application '$appName' blocked in Firewall!" "#10B981"
     } catch {
-        $LblAppHistActionStatus.Text = "Error: $($_.Exception.Message)"
-        $LblAppHistActionStatus.ForeColor = $ColorDanger
+        Show-Toast "Firewall Error: $($_.Exception.Message)" "#F43F5E"
     }
 })
 
-# Clear App History
-$BtnClearAppHist.Add_Click({
-    $res = [System.Windows.Forms.MessageBox]::Show(
-        "Are you sure you want to reset the per-application consumption history?",
-        "Confirm App History Reset",
-        [System.Windows.Forms.MessageBoxButtons]::YesNo,
-        [System.Windows.Forms.MessageBoxIcon]::Question
-    )
-    if ($res -eq [System.Windows.Forms.DialogResult]::Yes) {
+# Reset App History
+$BtnResetAppHistory.Add_Click({
+    $res = [System.Windows.MessageBox]::Show("Are you sure you want to reset the per-application consumption history?", "Confirm Reset", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Question)
+    if ($res -eq [System.Windows.MessageBoxResult]::Yes) {
         $script:AppHistory = New-Object PSCustomObject
         Save-AppHistory $script:AppHistory
         Refresh-AppHistoryList
-        $LblAppHistActionStatus.Text = "App history reset to zero."
-        $LblAppHistActionStatus.ForeColor = $ColorSuccess
+        Show-Toast "App history ledger reset to zero."
     }
 })
 
-# Reset Current Month Button Click
-$BtnResetMonth.Add_Click({
-    $currentMonthName = (Get-Date).ToString("MMMM yyyy")
-    $dialogResult = [System.Windows.Forms.MessageBox]::Show(
-        "Are you sure you want to reset current month data to 0 GB for $currentMonthName?`n`nThis action is irreversible and recommended when your billing cycle renews.",
-        "Confirm Monthly Data Reset",
-        [System.Windows.Forms.MessageBoxButtons]::YesNo,
-        [System.Windows.Forms.MessageBoxIcon]::Question
-    )
-
-    if ($dialogResult -eq [System.Windows.Forms.DialogResult]::Yes) {
+# Reset Current Month
+$BtnResetCurrentMonth.Add_Click({
+    $curMonthName = (Get-Date).ToString("MMMM yyyy")
+    $res = [System.Windows.MessageBox]::Show("Reset monthly consumption metrics to 0 GB for $curMonthName?`n`nRecommended when your billing cycle renews.", "Confirm Billing Reset", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Question)
+    if ($res -eq [System.Windows.MessageBoxResult]::Yes) {
         $monthKey = (Get-Date).ToString("yyyy-MM")
         $script:DataHistory.monthly | Add-Member -MemberType NoteProperty -Name $monthKey -Value 0.0 -Force
         Save-DataHistory $script:DataHistory
         $script:MonthlyWarningNotified = $false
         $script:MonthlyLimitNotified = $false
-
         Refresh-UsageDisplay
-        Refresh-HistoryTable
-
-        $LblResetStatus.Text = "Monthly metrics reset to 0 GB!"
-        $LblResetStatus.ForeColor = $ColorSuccess
+        Refresh-AnalyticsDisplay
+        Show-Toast "Monthly data usage reset to 0 GB."
     }
 })
 
-# Tab Switching Event
-$TabControl.Add_SelectedIndexChanged({
-    if ($TabControl.SelectedTab -eq $Tab2) {
-        Refresh-LiveAppsList
-    } elseif ($TabControl.SelectedTab -eq $Tab3) {
-        Refresh-AppHistoryList
-    } elseif ($TabControl.SelectedTab -eq $Tab4) {
-        Refresh-HistoryTable
-    } elseif ($TabControl.SelectedTab -eq $Tab5) {
-        Refresh-FirewallRulesList
-    }
-})
-
-# Browse Executable Button Click
+# Firewall Rule Management
 $BtnBrowseExe.Add_Click({
     $ofd = New-Object System.Windows.Forms.OpenFileDialog
     $ofd.Filter = "Executable files (*.exe)|*.exe|All files (*.*)|*.*"
     $ofd.Title = "Select Application to Block"
     $ofd.InitialDirectory = [Environment]::GetFolderPath("ProgramFiles")
     if ($ofd.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        $TxtExePath.Text = $ofd.FileName
-        $LblFwActionStatus.Text = ""
+        $TxtFirewallExePath.Text = $ofd.FileName
     }
     $ofd.Dispose()
 })
 
-# Block Application Button Click (Manual)
-$BtnBlockApp.Add_Click({
-    $exePath = $TxtExePath.Text.Trim()
+$BtnBlockExeManual.Add_Click({
+    $exePath = $TxtFirewallExePath.Text.Trim()
     if (-not $exePath -or -not (Test-Path $exePath)) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "Please select a valid executable (.exe) file first.",
-            "Invalid Executable",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Warning
-        )
+        [System.Windows.MessageBox]::Show("Please select a valid executable (.exe) first.", "Invalid File", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning)
         return
     }
 
@@ -2027,11 +2017,7 @@ $BtnBlockApp.Add_Click({
     $ruleName = "DataControl-Block-$cleanName"
 
     try {
-        $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-        if ($existing) {
-            Remove-NetFirewallRule -DisplayName $ruleName -Confirm:$false -ErrorAction SilentlyContinue
-        }
-
+        Remove-NetFirewallRule -DisplayName $ruleName -Confirm:$false -ErrorAction SilentlyContinue
         New-NetFirewallRule `
             -DisplayName $ruleName `
             -Name $ruleName `
@@ -2039,89 +2025,163 @@ $BtnBlockApp.Add_Click({
             -Program $exePath `
             -Action Block `
             -Profile Any `
-            -Description "Blocked by DataControl outbound traffic control" `
-            -ErrorAction Stop
+            -Description "Blocked by DataControl Outbound Traffic Blocker" `
+            -ErrorAction Stop | Out-Null
 
-        $LblFwActionStatus.Text = "Successfully blocked: $fileName"
-        $LblFwActionStatus.ForeColor = $ColorSuccess
-        $TxtExePath.Text = ""
+        $TxtFirewallExePath.Text = ""
         Refresh-FirewallRulesList
+        Show-Toast "Successfully blocked: $fileName" "#10B981"
     } catch {
-        $LblFwActionStatus.Text = "Error: $($_.Exception.Message)"
-        $LblFwActionStatus.ForeColor = $ColorDanger
+        Show-Toast "Firewall Error: $($_.Exception.Message)" "#F43F5E"
     }
 })
 
-# Unblock Application Button Click
-$BtnUnblockApp.Add_Click({
-    if ($ListFirewallRules.SelectedItems.Count -eq 0) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "Please select a firewall rule from the list to unblock.",
-            "No Rule Selected",
-            [System.Windows.Forms.MessageBoxButtons]::OK,
-            [System.Windows.Forms.MessageBoxIcon]::Information
+$BtnUnblockRule.Add_Click({
+    $item = $ListFirewallRules.SelectedItem
+    if (-not $item) {
+        [System.Windows.MessageBox]::Show("Please select a firewall rule from the list to unblock.", "No Selection", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+        return
+    }
+
+    $ruleName = [string]$item.RuleName
+    try {
+        Remove-NetFirewallRule -DisplayName $ruleName -Confirm:$false -ErrorAction Stop
+        Refresh-FirewallRulesList
+        Show-Toast "Rule removed: $ruleName" "#10B981"
+    } catch {
+        Show-Toast "Error removing rule: $($_.Exception.Message)" "#F43F5E"
+    }
+})
+
+$BtnRefreshRules.Add_Click({
+    Refresh-FirewallRulesList
+    Show-Toast "Firewall rules refreshed."
+})
+
+# Save All Settings
+$BtnSaveAllSettings.Add_Click({
+    try {
+        $dailyLimit = [double]$InputDailyLimit.Text
+        $dailyWarn  = [double]$InputDailyWarn.Text
+        $monthlyLimit = [double]$InputMonthlyLimit.Text
+        $monthlyWarn  = [double]$InputMonthlyWarn.Text
+        $pollSec = [int]$InputPollSeconds.Text
+
+        if ($dailyLimit -gt 0) { $script:AppConfig.daily_limit_gb = $dailyLimit }
+        if ($dailyWarn -gt 0) { $script:AppConfig.daily_warning_gb = $dailyWarn }
+        if ($monthlyLimit -gt 0) { $script:AppConfig.monthly_limit_gb = $monthlyLimit }
+        if ($monthlyWarn -gt 0) { $script:AppConfig.warning_threshold_gb = $monthlyWarn }
+        if ($pollSec -gt 0) { $script:AppConfig.poll_frequency_seconds = $pollSec }
+
+        $script:AppConfig.auto_disconnect_daily = [bool]$ChkSettingAutoDaily.IsChecked
+        $script:AppConfig.auto_disconnect = [bool]$ChkSettingAutoMonthly.IsChecked
+
+        $isTaskWanted = [bool]$ChkSettingStartWithWindows.IsChecked
+        Set-StartupTaskEnabled $isTaskWanted | Out-Null
+
+        Save-AppConfig $script:AppConfig
+        Refresh-UsageDisplay
+        Show-Toast "All settings saved and applied successfully!" "#10B981"
+    } catch {
+        Show-Toast "Invalid numeric input: $($_.Exception.Message)" "#F43F5E"
+    }
+})
+
+# Sidebar Exit Button
+$BtnSidebarExit.Add_Click({
+    $res = [System.Windows.MessageBox]::Show("Do you want to completely exit DataControl?`n`nTo keep monitoring data in the background, click No and simply close the window [X].", "Exit DataControl", [System.Windows.MessageBoxButton]::YesNo, [System.Windows.MessageBoxImage]::Question)
+    if ($res -eq [System.Windows.MessageBoxResult]::Yes) {
+        $script:AllowRealExit = $true
+        $Window.Close()
+    }
+})
+
+# Intercept Window Close [X] -> Hide to Tray Sentry
+$Window.Add_Closing({
+    param($s, $e)
+
+    if (-not $script:AllowRealExit) {
+        $e.Cancel = $true
+        $Window.Hide()
+        $Window.ShowInTaskbar = $false
+        $NotifyIcon.ShowBalloonTip(
+            3500,
+            "DataControl Sentry Active",
+            "DataControl is actively monitoring data in the background. Right-click or double-click the shield icon in your taskbar to open.",
+            [System.Windows.Forms.ToolTipIcon]::Info
         )
         return
     }
 
-    $selectedItem = $ListFirewallRules.SelectedItems[0]
-    $ruleDisplayName = $selectedItem.Text
-
-    try {
-        Remove-NetFirewallRule -DisplayName $ruleDisplayName -Confirm:$false -ErrorAction Stop
-        $LblUnblockStatus.Text = "Unblocked: $ruleDisplayName"
-        $LblUnblockStatus.ForeColor = $ColorSuccess
-        Refresh-FirewallRulesList
-    } catch {
-        $LblUnblockStatus.Text = "Error: $($_.Exception.Message)"
-        $LblUnblockStatus.ForeColor = $ColorDanger
-    }
-})
-
-# Refresh Rules Button Click
-$BtnRefreshRules.Add_Click({
-    Refresh-FirewallRulesList
-    $LblUnblockStatus.Text = "Rules list refreshed."
-    $LblUnblockStatus.ForeColor = $ColorTextLight
-})
-
-# Form Closing: Resource Cleanup
-$Form.Add_FormClosing({
-    $PollTimer.Stop()
-    $PollTimer.Dispose()
+    # Real Exit Cleanup
+    $script:PollTimer.Stop()
     $NotifyIcon.Visible = $false
     $NotifyIcon.Dispose()
     Save-DataHistory $script:DataHistory
     Save-AppHistory $script:AppHistory
+    [System.Windows.Application]::Current.Shutdown()
 })
 
-# Initial Form Load Preparation
-$Form.Add_Load({
+# ==============================================================================
+# Dispatcher Timer & Application Boot
+# ==============================================================================
+$script:PollTimer = New-Object System.Windows.Threading.DispatcherTimer
+$pollSeconds = [int]$script:AppConfig.poll_frequency_seconds
+if ($pollSeconds -lt 1) { $pollSeconds = 3 }
+$script:PollTimer.Interval = [TimeSpan]::FromSeconds($pollSeconds)
+
+$script:PollTimer.Add_Tick({
+    $target = [string]$ComboAdapters.SelectedItem
+    if (-not $target) { $target = $script:AppConfig.target_adapter }
+
+    Update-NetworkMetrics -AdapterName $target
+    Refresh-AdapterStatus
+    Refresh-UsageDisplay
+    Check-EnforcementRules
+
+    if ($ViewLiveApps.Visibility -eq [System.Windows.Visibility]::Visible) {
+        Refresh-LiveAppsList
+    }
+})
+
+# Initial Form Preparation
+$Window.Add_SourceInitialized({
+    $helper = New-Object System.Windows.Interop.WindowInteropHelper($Window)
+    [Win11Native]::ApplyWin11Aesthetics($helper.Handle)
+})
+
+$Window.Add_Loaded({
     Refresh-AdapterList
-    Refresh-AdapterStatusLabel
+    Refresh-AdapterStatus
     Update-NetworkMetrics
     Refresh-UsageDisplay
     Refresh-LiveAppsList
     Refresh-AppHistoryList
     Refresh-FirewallRulesList
-    $PollTimer.Start()
+    Refresh-SettingsInputs
+
+    $ToggleDailyCutoff.IsChecked = [bool]$script:AppConfig.auto_disconnect_daily
+    $ToggleMonthlyCutoff.IsChecked = [bool]$script:AppConfig.auto_disconnect
+
+    Set-ActiveView "Dashboard"
+    $script:PollTimer.Start()
 })
 
-# Handle Start Minimized (Background Boot)
+# Create WPF Application instance
+$app = New-Object System.Windows.Application
+$app.ShutdownMode = [System.Windows.ShutdownMode]::OnExplicitShutdown
+
 if ($StartMinimized) {
-    $Form.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
-    $Form.ShowInTaskbar = $false
-    $Form.Add_Shown({
-        $Form.Hide()
-        $Form.ShowInTaskbar = $false
-        $NotifyIcon.ShowBalloonTip(
-            3500,
-            "DataControl Sentry Active",
-            "DataControl is actively monitoring dual daily/monthly quotas in the background. Double-click to open dashboard.",
-            [System.Windows.Forms.ToolTipIcon]::Info
-        )
-    })
+    $Window.WindowState = [System.Windows.WindowState]::Minimized
+    $Window.ShowInTaskbar = $false
+    $NotifyIcon.ShowBalloonTip(
+        3500,
+        "DataControl Sentry Active",
+        "DataControl started in background. Double-click tray icon to open dashboard.",
+        [System.Windows.Forms.ToolTipIcon]::Info
+    )
+} else {
+    $Window.Show()
 }
 
-# Launch Application Form
-[System.Windows.Forms.Application]::Run($Form)
+$app.Run($Window)
