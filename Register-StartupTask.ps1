@@ -20,17 +20,17 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 $TaskName = "DataControl_Monitor"
 $AppDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $AppDir) { $AppDir = (Get-Location).Path }
-$ScriptPath = Join-Path $AppDir "DataControl.ps1"
+$ExePath = Join-Path $AppDir "DataControl.exe"
 
-if (-not (Test-Path $ScriptPath)) {
-    Write-Error "DataControl.ps1 not found in $AppDir"
+if (-not (Test-Path $ExePath)) {
+    Write-Error "DataControl.exe not found in $AppDir"
     exit 1
 }
 
 # Define Task Components
 $action = New-ScheduledTaskAction `
-    -Execute "powershell.exe" `
-    -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`" -StartMinimized"
+    -Execute $ExePath `
+    -Argument "-StartMinimized"
 
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 
@@ -59,7 +59,7 @@ try {
     Write-Host " SUCCESS: DataControl has been registered as a startup task!" -ForegroundColor Green
     Write-Host " Task Name: $TaskName" -ForegroundColor Cyan
     Write-Host " Privilege: Highest (Administrator, no UAC prompts on logon)" -ForegroundColor Cyan
-    Write-Host " Mode: Minimized directly to system tray in the background" -ForegroundColor Cyan
+    Write-Host " Target: $ExePath -StartMinimized" -ForegroundColor Cyan
     Write-Host "==========================================================" -ForegroundColor Green
 } catch {
     Write-Error "Failed to register scheduled task: $_"

@@ -114,10 +114,15 @@ function Test-StartupTaskEnabled {
 
 function Set-StartupTaskEnabled ([bool]$enable) {
     if ($enable) {
-        $scriptPath = Join-Path $AppDir "DataControl.ps1"
-        $action = New-ScheduledTaskAction `
-            -Execute "powershell.exe" `
-            -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -StartMinimized"
+        $exePath = Join-Path $AppDir "DataControl.exe"
+        if (Test-Path $exePath) {
+            $action = New-ScheduledTaskAction -Execute $exePath -Argument "-StartMinimized"
+        } else {
+            $scriptPath = Join-Path $AppDir "DataControl.ps1"
+            $action = New-ScheduledTaskAction `
+                -Execute "powershell.exe" `
+                -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`" -StartMinimized"
+        }
         $trigger = New-ScheduledTaskTrigger -AtLogOn
         $principalTask = New-ScheduledTaskPrincipal `
             -UserId $env:USERNAME `

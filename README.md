@@ -39,21 +39,17 @@ DataControl provides **real-time hardware-level network metering**, **persistent
 
 ## 🚀 Running the Program & Background Execution
 
-### 1. Run Interactively (GUI Window)
+### 1. Run via Desktop or Start Menu (Recommended)
+Double-click the **DataControl** shortcut on your Desktop or open the Windows Start Menu and type **DataControl**.
+- Launches instantly via native [`DataControl.exe`](file:///d:/web/dataControle/DataControl.exe) with **zero console window flash**.
+- Sits in the **Windows System Tray** with the custom shield icon.
+
+### 2. Run from PowerShell / Terminal
 Open PowerShell as Administrator (or let the script self-elevate) and run:
 
 ```powershell
 powershell.exe -ExecutionPolicy Bypass -File .\DataControl.ps1
 ```
-
-### 2. Run Silently in the Background (Zero Console Flash)
-Double-click `Start-DataControl.vbs` or run:
-
-```cmd
-wscript.exe .\Start-DataControl.vbs
-```
-
-This launches DataControl with a hidden console window. The app will sit in your Windows System Tray (notification area) with a shield icon.
 
 ### 3. Minimize to Background
 Whenever DataControl is open, clicking the **Minimize (`_`)** button automatically hides the window and sends it directly to the system tray so your taskbar stays clutter-free. Double-click the shield tray icon or right-click ➔ **Open DataControl** anytime to bring it back.
