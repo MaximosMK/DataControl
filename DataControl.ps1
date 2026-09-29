@@ -44,6 +44,8 @@ if (-not $AppDir) { $AppDir = (Get-Location).Path }
 # ==============================================================================
 . (Join-Path $AppDir "src\core\NativeMethods.ps1")
 . (Join-Path $AppDir "src\storage\ConfigManager.ps1")
+. (Join-Path $AppDir "src\core\NetworkProfiles.ps1")
+. (Join-Path $AppDir "src\core\PromptManager.ps1")
 . (Join-Path $AppDir "src\core\NetworkEngine.ps1")
 . (Join-Path $AppDir "src\core\ProcessTracker.ps1")
 . (Join-Path $AppDir "src\core\Enforcement.ps1")
@@ -58,6 +60,7 @@ Init-StoragePaths $AppDir
 $script:AppConfig = Load-AppConfig
 $script:DataHistory = Load-DataHistory
 $script:AppHistory = Load-AppHistory
+$script:AppRules = Load-AppRules
 
 $script:LastPollTime = [DateTime]::UtcNow
 $script:DailyWarningNotified = $false
@@ -90,14 +93,16 @@ $sr.Close()
 # Wire UI elements into a centralized dictionary for UIController
 $script:UI = @{}
 $elementNames = @(
-    "BtnNavDashboard", "BtnNavLiveApps", "BtnNavAppHistory", "BtnNavAnalytics", "BtnNavFirewall", "BtnNavSettings",
+    "BtnNavDashboard", "BtnNavLiveApps", "BtnNavAppRules", "BtnNavAppHistory", "BtnNavAnalytics", "BtnNavFirewall", "BtnNavSettings",
     "BtnSidebarToggleWifi", "BtnSidebarExit", "SidebarSentryStatus", "SidebarAdapterLabel",
     "WorkspaceTitle", "WorkspaceSubtitle", "TxtLinkStatus", "BadgeLinkStatus", "TxtLiveSpeedTop", "ToastBanner", "ToastText",
-    "ViewDashboard", "ViewLiveApps", "ViewAppHistory", "ViewAnalytics", "ViewFirewall", "ViewSettings",
+    "BadgeNetworkProfile", "TxtNetworkProfileName", "BtnToggleNetworkProfile",
+    "ViewDashboard", "ViewLiveApps", "ViewAppRules", "ViewAppHistory", "ViewAnalytics", "ViewFirewall", "ViewSettings",
     "ComboAdapters", "TxtAdapterDetails", "TxtHeroSpeed", "BtnDisableWifiHero", "BtnEnableWifiHero",
     "TxtDailyPercent", "TxtDailyHero", "BarDailyFill", "TxtDailyRemaining", "ToggleDailyCutoff",
     "TxtMonthlyPercent", "TxtMonthlyHero", "BarMonthlyFill", "TxtMonthlyRemaining", "ToggleMonthlyCutoff",
     "ListDashboardTopApps", "TxtLiveSearch", "BtnRefreshLive", "ListLiveApps", "BtnBlockLiveApp", "TxtLiveBlockStatus",
+    "TxtAppRulesSearch", "BtnRefreshAppRules", "ListAppRules", "BtnRuleAllowFree", "BtnRuleSet500MB", "BtnRuleBlockApp",
     "BtnResetAppHistory", "ListAppHistory", "BtnBlockHistoryApp", "TxtHistoryBlockStatus",
     "TxtAnalyticsToday", "TxtAnalyticsTodaySub", "TxtAnalyticsMonth", "TxtAnalyticsMonthSub",
     "TxtAnalyticsYear", "TxtAnalyticsYearSub", "BtnResetCurrentMonth", "ListDailyHistory",
@@ -105,6 +110,7 @@ $elementNames = @(
     "ListFirewallRules", "BtnUnblockRule", "BtnRefreshRules",
     "InputDailyLimit", "InputDailyWarn", "ChkSettingAutoDaily",
     "InputMonthlyLimit", "InputMonthlyWarn", "ChkSettingAutoMonthly",
+    "ChkSettingPromptNewApps", "InputPromptTimeout",
     "ChkSettingStartWithWindows", "InputPollSeconds", "BtnSaveAllSettings"
 )
 
@@ -174,10 +180,18 @@ $NotifyIcon.Add_Click({
 # Navigation Handlers
 $script:UI.BtnNavDashboard.Add_Click({ Set-ActiveView "Dashboard" })
 $script:UI.BtnNavLiveApps.Add_Click({ Set-ActiveView "LiveApps" })
+if ($script:UI.BtnNavAppRules) { $script:UI.BtnNavAppRules.Add_Click({ Set-ActiveView "AppRules" }) }
 $script:UI.BtnNavAppHistory.Add_Click({ Set-ActiveView "AppHistory" })
 $script:UI.BtnNavAnalytics.Add_Click({ Set-ActiveView "Analytics" })
 $script:UI.BtnNavFirewall.Add_Click({ Set-ActiveView "Firewall" })
 $script:UI.BtnNavSettings.Add_Click({ Set-ActiveView "Settings" })
+
+# Network Profile Toggle Handler
+if ($script:UI.BtnToggleNetworkProfile) {
+    $script:UI.BtnToggleNetworkProfile.Add_Click({
+        Toggle-CurrentNetworkProfileMode
+    })
+}
 
 # Adapter ComboBox Selection Changed
 $script:UI.ComboAdapters.Add_SelectionChanged({
@@ -268,6 +282,58 @@ $script:UI.BtnResetAppHistory.Add_Click({
     }
 })
 
+# App Rules Filtering & Enforcement Actions
+if ($script:UI.TxtAppRulesSearch) {
+    $script:UI.TxtAppRulesSearch.Add_TextChanged({ Refresh-AppRulesList })
+}
+if ($script:UI.BtnRefreshAppRules) {
+    $script:UI.BtnRefreshAppRules.Add_Click({ Refresh-AppRulesList })
+}
+
+if ($script:UI.BtnRuleAllowFree) {
+    $script:UI.BtnRuleAllowFree.Add_Click({
+        $item = $script:UI.ListAppRules.SelectedItem
+        if (-not $item) {
+            [System.Windows.MessageBox]::Show("Please select an application rule from the list.", "No Selection", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            return
+        }
+        Set-AppRule -AppName $item.AppName -Permission "Allow" -QuotaMB 0 -AppPath $item.AppPath
+        Unblock-ApplicationRule -ruleName "DataControl-Block-$($item.AppName)"
+        Refresh-AppRulesList
+        Show-Toast "Rule updated: $($item.AppName) granted Unlimited access." "#10B981"
+    })
+}
+
+if ($script:UI.BtnRuleSet500MB) {
+    $script:UI.BtnRuleSet500MB.Add_Click({
+        $item = $script:UI.ListAppRules.SelectedItem
+        if (-not $item) {
+            [System.Windows.MessageBox]::Show("Please select an application rule from the list.", "No Selection", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            return
+        }
+        Set-AppRule -AppName $item.AppName -Permission "Quota" -QuotaMB 500 -AppPath $item.AppPath
+        Unblock-ApplicationRule -ruleName "DataControl-Block-$($item.AppName)"
+        Refresh-AppRulesList
+        Show-Toast "Rule updated: $($item.AppName) assigned 500 MB Micro-Quota." "#38BDF8"
+    })
+}
+
+if ($script:UI.BtnRuleBlockApp) {
+    $script:UI.BtnRuleBlockApp.Add_Click({
+        $item = $script:UI.ListAppRules.SelectedItem
+        if (-not $item) {
+            [System.Windows.MessageBox]::Show("Please select an application rule from the list.", "No Selection", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information)
+            return
+        }
+        Set-AppRule -AppName $item.AppName -Permission "Block" -QuotaMB 0 -AppPath $item.AppPath
+        if ($item.AppPath -and (Test-Path $item.AppPath)) {
+            Block-ApplicationPath -appPath $item.AppPath -description "Blocked by DataControl App Rule Sentry" | Out-Null
+        }
+        Refresh-AppRulesList
+        Show-Toast "Rule updated: $($item.AppName) outbound traffic blocked." "#F43F5E"
+    })
+}
+
 # Analytics Monthly Reset
 $script:UI.BtnResetCurrentMonth.Add_Click({
     $curMonthName = (Get-Date).ToString("MMMM yyyy")
@@ -353,6 +419,14 @@ $script:UI.BtnSaveAllSettings.Add_Click({
         $script:AppConfig.auto_disconnect_daily = [bool]$script:UI.ChkSettingAutoDaily.IsChecked
         $script:AppConfig.auto_disconnect = [bool]$script:UI.ChkSettingAutoMonthly.IsChecked
 
+        if ($script:UI.ChkSettingPromptNewApps) {
+            $script:AppConfig.prompt_new_apps = [bool]$script:UI.ChkSettingPromptNewApps.IsChecked
+        }
+        if ($script:UI.InputPromptTimeout) {
+            $pTimeout = [int]$script:UI.InputPromptTimeout.Text
+            if ($pTimeout -gt 0) { $script:AppConfig.prompt_timeout_seconds = $pTimeout }
+        }
+
         $isTaskWanted = [bool]$script:UI.ChkSettingStartWithWindows.IsChecked
         Set-StartupTaskEnabled $isTaskWanted | Out-Null
 
@@ -395,6 +469,7 @@ $Window.Add_Closing({
     $NotifyIcon.Dispose()
     Save-DataHistory $script:DataHistory
     Save-AppHistory $script:AppHistory
+    Save-AppRules $script:AppRules
     [System.Windows.Application]::Current.Shutdown()
 })
 
@@ -412,11 +487,15 @@ $script:PollTimer.Add_Tick({
 
     Update-NetworkMetrics -AdapterName $target
     Refresh-AdapterStatus
+    Refresh-NetworkProfileStatus
     Refresh-UsageDisplay
     Check-EnforcementRules
 
     if ($script:UI.ViewLiveApps.Visibility -eq [System.Windows.Visibility]::Visible) {
         Refresh-LiveAppsList
+    }
+    if ($script:UI.ViewAppRules -and $script:UI.ViewAppRules.Visibility -eq [System.Windows.Visibility]::Visible) {
+        Refresh-AppRulesList
     }
 })
 
@@ -428,9 +507,11 @@ $Window.Add_SourceInitialized({
 $Window.Add_Loaded({
     Refresh-AdapterList
     Refresh-AdapterStatus
+    Refresh-NetworkProfileStatus
     Update-NetworkMetrics
     Refresh-UsageDisplay
     Refresh-LiveAppsList
+    Refresh-AppRulesList
     Refresh-AppHistoryList
     Refresh-FirewallRulesList
     Refresh-SettingsInputs

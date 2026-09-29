@@ -30,6 +30,15 @@ function Check-EnforcementRules {
     $monthlyWarnGB  = [double]$script:AppConfig.warning_threshold_gb
     $targetAdapter = [string]$script:AppConfig.target_adapter
 
+    # If currently connected network is marked Unlimited, bypass all cutoffs & alerts
+    if (Test-IsCurrentNetworkUnlimited) {
+        $script:DailyWarningNotified = $false
+        $script:DailyLimitNotified = $false
+        $script:MonthlyWarningNotified = $false
+        $script:MonthlyLimitNotified = $false
+        return
+    }
+
     # 1. Daily Warning Alert
     if ($dayGB -ge $dailyWarnGB -and $dayGB -lt $dailyLimitGB) {
         if (-not $script:DailyWarningNotified) {

@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    Per-Process Network I/O & Socket Tracking Engine
+    Per-Process Network I/O & Socket Tracking Engine (v3.5)
 .DESCRIPTION
     Samples active TCP/UDP socket connections, retrieves per-PID I/O transfer bytes via
-    Win32 GetProcessIoCounters, calculates instantaneous speeds, and persists cumulative data.
+    Win32 GetProcessIoCounters, tracks per-app quotas, and requests permissions for new apps.
 #>
 
 function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
@@ -15,6 +15,9 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
         $currentPids = @{}
         $nowStr = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
         $historyUpdated = $false
+        $rulesUpdated = $false
+
+        $isUnlimited = Test-IsCurrentNetworkUnlimited
 
         foreach ($pidNum in $pids) {
             $p = Get-Process -Id $pidNum -ErrorAction SilentlyContinue
@@ -53,6 +56,7 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
                 LastSeen     = $nowStr
             }
 
+            # 1. Update Cumulative App History
             if ($pName) {
                 $curHistTotal = 0.0
                 if ($script:AppHistory.PSObject.Properties[$pName]) {
@@ -72,12 +76,44 @@ function Update-AppProcessMetrics ([double]$ElapsedSeconds) {
                 }
                 $script:AppHistory | Add-Member -MemberType NoteProperty -Name $pName -Value $record -Force
                 if ($deltaToAdd -gt 0) { $historyUpdated = $true }
+
+                # 2. Update Per-App Rules & Quotas Accounting
+                $rule = Get-AppRule $pName
+                if ($rule) {
+                    if ($deltaToAdd -gt 0) {
+                        $rule.ConsumedBytes = [double]$rule.ConsumedBytes + $deltaToAdd
+                        $rule.LastUpdated = $nowStr
+                        $rulesUpdated = $true
+                    }
+
+                    # Check Per-App Quota Limit (only on metered network)
+                    if (-not $isUnlimited -and $rule.Status -eq "Quota" -and $rule.QuotaMB -gt 0) {
+                        $limitBytes = [double]$rule.QuotaMB * 1MB
+                        if ([double]$rule.ConsumedBytes -ge $limitBytes) {
+                            if ($pPath -and (Test-Path $pPath)) {
+                                try {
+                                    Block-ApplicationPath -appPath $pPath -description "Per-App Quota Limit Exceeded ($($rule.QuotaMB) MB)" | Out-Null
+                                } catch {}
+                            }
+                            $NotifyIcon.ShowBalloonTip(
+                                5000,
+                                "DataControl: App Quota Limit Exceeded",
+                                "Application '$($rule.DisplayName)' reached its $($rule.QuotaMB) MB limit. Outbound traffic paused.",
+                                [System.Windows.Forms.ToolTipIcon]::Warning
+                            )
+                        }
+                    }
+                } else {
+                    # New untracked application detected!
+                    if (-not $isUnlimited -and $pPath) {
+                        Request-AppNetworkPermission -appName $pName -path $pPath -pidNum $pidNum
+                    }
+                }
             }
         }
 
         $script:ProcStateCache = $currentPids
-        if ($historyUpdated) {
-            Save-AppHistory $script:AppHistory
-        }
+        if ($historyUpdated) { Save-AppHistory $script:AppHistory }
+        if ($rulesUpdated) { Save-AppRules $script:AppRules }
     } catch {}
 }

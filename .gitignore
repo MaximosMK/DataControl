@@ -3,6 +3,8 @@ config.json
 data_history.json
 data_history*.json
 app_history.json
+app_rules.json
+*rules*.json
 user_data/
 *.dat
 

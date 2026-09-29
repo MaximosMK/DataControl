@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    DataControl Configuration & History Storage Manager
+    DataControl Configuration & Storage Manager (v3.5)
 .DESCRIPTION
-    Handles local JSON persistence for configuration settings, interface traffic history,
-    and cumulative per-application usage leaderboards.
+    Handles local JSON persistence for configuration settings, network profiles,
+    interface traffic history, application rules & per-app quotas, and consumption logs.
 #>
 
 function Init-StoragePaths ($baseDir) {
@@ -11,11 +11,19 @@ function Init-StoragePaths ($baseDir) {
     $script:ConfigFile = Join-Path $baseDir "config.json"
     $script:HistoryFile = Join-Path $baseDir "data_history.json"
     $script:AppHistoryFile = Join-Path $baseDir "app_history.json"
+    $script:AppRulesFile = Join-Path $baseDir "app_rules.json"
     $script:IconPath = Join-Path $baseDir "assets\DataControl.ico"
     if (-not (Test-Path $script:IconPath)) {
         $script:IconPath = Join-Path $baseDir "DataControl.ico"
     }
     $script:TaskName = "DataControl_Monitor"
+
+    # Core System Processes Whitelist (Pre-approved OS infrastructure)
+    $script:SystemWhitelist = @(
+        "system", "svchost.exe", "lsass.exe", "services.exe", "smss.exe",
+        "csrss.exe", "wininit.exe", "winlogon.exe", "datacontrol.exe",
+        "powershell.exe", "spoolsv.exe", "explorer.exe", "fontdrvhost.exe"
+    )
 }
 
 function Load-AppConfig {
@@ -25,6 +33,9 @@ function Load-AppConfig {
             if (-not $raw.daily_limit_gb) { $raw | Add-Member -MemberType NoteProperty -Name "daily_limit_gb" -Value 2.0 -Force }
             if (-not $raw.daily_warning_gb) { $raw | Add-Member -MemberType NoteProperty -Name "daily_warning_gb" -Value 1.7 -Force }
             if ($null -eq $raw.auto_disconnect_daily) { $raw | Add-Member -MemberType NoteProperty -Name "auto_disconnect_daily" -Value $true -Force }
+            if (-not $raw.network_profiles) { $raw | Add-Member -MemberType NoteProperty -Name "network_profiles" -Value (New-Object PSCustomObject) -Force }
+            if ($null -eq $raw.prompt_on_new_apps) { $raw | Add-Member -MemberType NoteProperty -Name "prompt_on_new_apps" -Value $true -Force }
+            if ($null -eq $raw.prompt_timeout_seconds) { $raw | Add-Member -MemberType NoteProperty -Name "prompt_timeout_seconds" -Value 30 -Force }
             return $raw
         } catch {}
     }
@@ -37,12 +48,15 @@ function Load-AppConfig {
         auto_disconnect        = $true
         auto_disconnect_daily  = $true
         poll_frequency_seconds = 3
+        prompt_on_new_apps     = $true
+        prompt_timeout_seconds = 30
+        network_profiles       = [PSCustomObject]@{}
     }
 }
 
 function Save-AppConfig ($cfg) {
     try {
-        $cfg | ConvertTo-Json -Depth 5 | Set-Content -Path $script:ConfigFile -Encoding UTF8
+        $cfg | ConvertTo-Json -Depth 6 | Set-Content -Path $script:ConfigFile -Encoding UTF8
     } catch {
         Write-Warning "Failed to save configuration: $_"
     }
@@ -89,6 +103,55 @@ function Save-AppHistory ($appHist) {
     try {
         $appHist | ConvertTo-Json -Depth 6 | Set-Content -Path $script:AppHistoryFile -Encoding UTF8
     } catch {}
+}
+
+# Per-App Permission Rules & Quotas Management
+function Load-AppRules {
+    if (Test-Path $script:AppRulesFile) {
+        try {
+            $raw = Get-Content -Path $script:AppRulesFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            return $raw
+        } catch {}
+    }
+    return (New-Object PSCustomObject)
+}
+
+function Save-AppRules ($rules) {
+    try {
+        $rules | ConvertTo-Json -Depth 6 | Set-Content -Path $script:AppRulesFile -Encoding UTF8
+    } catch {}
+}
+
+function Get-AppRule ([string]$appName) {
+    if (-not $appName) { return $null }
+    $pKey = $appName.ToLower()
+    if ($script:AppRules -and $script:AppRules.PSObject.Properties[$pKey]) {
+        return $script:AppRules.$pKey
+    }
+    return $null
+}
+
+function Set-AppRule ([string]$appName, [string]$status, [double]$quotaMB = 0, [string]$path = "") {
+    if (-not $appName) { return }
+    $pKey = $appName.ToLower()
+
+    $existing = Get-AppRule $appName
+    $consumed = 0.0
+    if ($existing -and $existing.ConsumedBytes) { $consumed = [double]$existing.ConsumedBytes }
+
+    $rule = [PSCustomObject]@{
+        Name          = $appName
+        DisplayName   = [System.IO.Path]::GetFileNameWithoutExtension($appName)
+        Path          = if ($path) { $path } elseif ($existing -and $existing.Path) { $existing.Path } else { "" }
+        Status        = $status # "Allowed", "Quota", "Blocked", "AutoBlocked"
+        QuotaMB       = $quotaMB
+        ConsumedBytes = $consumed
+        LastUpdated   = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    }
+
+    $script:AppRules | Add-Member -MemberType NoteProperty -Name $pKey -Value $rule -Force
+    Save-AppRules $script:AppRules
+    return $rule
 }
 
 function Format-Bytes ([double]$bytes) {

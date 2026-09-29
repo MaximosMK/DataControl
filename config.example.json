@@ -6,5 +6,13 @@
   "warning_threshold_gb": 14.0,
   "auto_disconnect": true,
   "auto_disconnect_daily": true,
-  "poll_frequency_seconds": 3
+  "poll_frequency_seconds": 3,
+  "prompt_on_new_apps": true,
+  "prompt_timeout_seconds": 30,
+  "network_profiles": {
+    "MiFi": {
+      "IsUnlimited": false,
+      "Description": "Cellular Hotspot"
+    }
+  }
 }

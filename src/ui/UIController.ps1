@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-    DataControl UI Controller & View-Model Binding
+    DataControl UI Controller & View-Model Binding (v3.5)
 .DESCRIPTION
-    Handles workspace navigation, in-app toast alerts, list updates, hardware toggles,
-    and two-way binding between the UI elements and underlying engines.
+    Handles workspace navigation, in-app toast alerts, network profile toggles,
+    app rules & per-app quota management, list updates, and two-way binding.
 #>
 
 function Show-Toast ([string]$message, [string]$colorHex = "#10B981") {
@@ -23,18 +23,20 @@ function Show-Toast ([string]$message, [string]$colorHex = "#10B981") {
 
 function Set-ActiveView ([string]$viewName) {
     $views = @(
-        $script:UI.ViewDashboard, $script:UI.ViewLiveApps, $script:UI.ViewAppHistory,
-        $script:UI.ViewAnalytics, $script:UI.ViewFirewall, $script:UI.ViewSettings
+        $script:UI.ViewDashboard, $script:UI.ViewAppRules, $script:UI.ViewLiveApps,
+        $script:UI.ViewAppHistory, $script:UI.ViewAnalytics, $script:UI.ViewFirewall, $script:UI.ViewSettings
     )
-    foreach ($v in $views) { $v.Visibility = [System.Windows.Visibility]::Collapsed }
+    foreach ($v in $views) { if ($v) { $v.Visibility = [System.Windows.Visibility]::Collapsed } }
 
     $navButtons = @(
-        $script:UI.BtnNavDashboard, $script:UI.BtnNavLiveApps, $script:UI.BtnNavAppHistory,
-        $script:UI.BtnNavAnalytics, $script:UI.BtnNavFirewall, $script:UI.BtnNavSettings
+        $script:UI.BtnNavDashboard, $script:UI.BtnNavAppRules, $script:UI.BtnNavLiveApps,
+        $script:UI.BtnNavAppHistory, $script:UI.BtnNavAnalytics, $script:UI.BtnNavFirewall, $script:UI.BtnNavSettings
     )
     foreach ($b in $navButtons) {
-        $b.Background = [System.Windows.Media.Brushes]::Transparent
-        $b.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#94A3B8"))
+        if ($b) {
+            $b.Background = [System.Windows.Media.Brushes]::Transparent
+            $b.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#94A3B8"))
+        }
     }
 
     $activeBrush = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#162035"))
@@ -46,7 +48,15 @@ function Set-ActiveView ([string]$viewName) {
             $script:UI.BtnNavDashboard.Background = $activeBrush
             $script:UI.BtnNavDashboard.Foreground = $activeFg
             $script:UI.WorkspaceTitle.Text = "System Dashboard & Dual Quotas"
-            $script:UI.WorkspaceSubtitle.Text = "Real-time telemetry, auto-cutoff, and metered connection protection"
+            $script:UI.WorkspaceSubtitle.Text = "Autonomous telemetry, context-aware profiles, and outbound traffic governance"
+        }
+        "AppRules" {
+            $script:UI.ViewAppRules.Visibility = [System.Windows.Visibility]::Visible
+            $script:UI.BtnNavAppRules.Background = $activeBrush
+            $script:UI.BtnNavAppRules.Foreground = $activeFg
+            $script:UI.WorkspaceTitle.Text = "Application Network Rules & Per-App Quotas"
+            $script:UI.WorkspaceSubtitle.Text = "Manage granular bandwidth allowances, permissions, and zero-trust auto-block policies"
+            Refresh-AppRulesList
         }
         "LiveApps" {
             $script:UI.ViewLiveApps.Visibility = [System.Windows.Visibility]::Visible
@@ -84,10 +94,43 @@ function Set-ActiveView ([string]$viewName) {
             $script:UI.ViewSettings.Visibility = [System.Windows.Visibility]::Visible
             $script:UI.BtnNavSettings.Background = $activeBrush
             $script:UI.BtnNavSettings.Foreground = $activeFg
-            $script:UI.WorkspaceTitle.Text = "Quota Policies & System Daemon"
-            $script:UI.WorkspaceSubtitle.Text = "Configure daily/monthly cutoff thresholds, background polling, and Windows startup"
+            $script:UI.WorkspaceTitle.Text = "Quota Policies & Zero-Trust Daemon"
+            $script:UI.WorkspaceSubtitle.Text = "Configure interactive prompt countdowns, network profiles, and Windows startup"
             Refresh-SettingsInputs
         }
+    }
+}
+
+function Refresh-NetworkProfileStatus {
+    $prof = Get-ActiveNetworkProfile
+    if ($prof.IsUnlimited) {
+        $script:UI.BadgeNetworkProfile.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#064E3B"))
+        $script:UI.TxtNetworkProfileName.Text = "$($prof.Name): 🚀 Unlimited"
+        $script:UI.TxtNetworkProfileName.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+        $script:UI.BtnToggleNetworkProfile.Content = "Switch to Metered"
+        $script:UI.SidebarSentryStatus.Text = "● UNLIMITED MODE (Free)"
+        $script:UI.SidebarSentryStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+        $script:UI.SidebarNetworkProfile.Text = "Profile: $($prof.Name) (Unlimited)"
+    } else {
+        $script:UI.BadgeNetworkProfile.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#451A03"))
+        $script:UI.TxtNetworkProfileName.Text = "$($prof.Name): 🛡️ Metered"
+        $script:UI.TxtNetworkProfileName.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F59E0B"))
+        $script:UI.BtnToggleNetworkProfile.Content = "Switch to Unlimited"
+        $script:UI.SidebarSentryStatus.Text = "● SENTRY ACTIVE"
+        $script:UI.SidebarSentryStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
+        $script:UI.SidebarNetworkProfile.Text = "Profile: $($prof.Name) (Metered)"
+    }
+}
+
+function Toggle-CurrentNetworkProfileMode {
+    $prof = Get-ActiveNetworkProfile
+    $newMode = -not $prof.IsUnlimited
+    Set-NetworkProfileMode -networkName $prof.Name -isUnlimited $newMode
+    Refresh-NetworkProfileStatus
+    if ($newMode) {
+        Show-Toast "Network '$($prof.Name)' marked as UNLIMITED. Quotas and prompts suspended." "#10B981"
+    } else {
+        Show-Toast "Network '$($prof.Name)' marked as METERED. Sentry protection engaged." "#F59E0B"
     }
 }
 
@@ -120,7 +163,6 @@ function Refresh-AdapterList {
 function Refresh-AdapterStatus {
     $sel = [string]$script:UI.ComboAdapters.SelectedItem
     if (-not $sel) { $sel = $script:AppConfig.target_adapter }
-    $script:UI.SidebarAdapterLabel.Text = "Target: $sel"
 
     try {
         $adapter = Get-NetAdapter -Name $sel -ErrorAction SilentlyContinue
@@ -129,7 +171,7 @@ function Refresh-AdapterStatus {
                 $script:UI.TxtLinkStatus.Text = "● CONNECTED (UP)"
                 $script:UI.TxtLinkStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#10B981"))
                 $script:UI.BadgeLinkStatus.Background = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#064E3B"))
-                $script:UI.TxtAdapterDetails.Text = "Status: Connected (Up) | Sentry active on $sel"
+                $script:UI.TxtAdapterDetails.Text = "Status: Connected (Up) | Target Adapter: $sel"
             } elseif ($adapter.Status -eq "Disabled") {
                 $script:UI.TxtLinkStatus.Text = "● DISABLED"
                 $script:UI.TxtLinkStatus.Foreground = New-Object System.Windows.Media.SolidColorBrush([System.Windows.Media.ColorConverter]::ConvertFromString("#F43F5E"))
@@ -254,7 +296,9 @@ function Refresh-UsageDisplay {
     }
 
     # System Tray Tooltip and Menu Updates
-    $trayStr = "DataControl: $(Format-Bytes $dayBytes) / $dailyLimitGB GB ($dailyPercent%) - Sentry Active"
+    $prof = Get-ActiveNetworkProfile
+    $modeTag = if ($prof.IsUnlimited) { "Unlimited" } else { "Metered ($dailyPercent%)" }
+    $trayStr = "DataControl: $(Format-Bytes $dayBytes) / $dailyLimitGB GB - $modeTag"
     if ($trayStr.Length -gt 63) { $trayStr = $trayStr.Substring(0, 63) }
     $NotifyIcon.Text = $trayStr
 
@@ -274,6 +318,43 @@ function Refresh-UsageDisplay {
             Sockets      = $item.Connections
             Path         = $item.Path
         }) | Out-Null
+    }
+}
+
+function Refresh-AppRulesList {
+    $filterText = $script:UI.TxtAppRulesSearch.Text.Trim().ToLower()
+    $script:UI.ListAppRules.Items.Clear()
+
+    if ($script:AppRules) {
+        $props = $script:AppRules.PSObject.Properties | Sort-Object -Property Name
+
+        foreach ($p in $props) {
+            $rule = $p.Value
+            if ($filterText -and -not ($rule.Name.ToLower().Contains($filterText) -or $rule.Path.ToLower().Contains($filterText))) {
+                continue
+            }
+
+            $quotaDisp = if ($rule.Status -eq "Quota" -and $rule.QuotaMB -gt 0) { "$($rule.QuotaMB) MB" } else { "Unlimited" }
+            $consumedDisp = Format-Bytes ([double]$rule.ConsumedBytes)
+
+            $statusBadge = switch ($rule.Status) {
+                "Allowed"     { "[Allowed] Unlimited" }
+                "Quota"       { "[Quota] Capped" }
+                "Blocked"     { "[Blocked] Firewall Outbound" }
+                "AutoBlocked" { "[Auto-Blocked] 30s Timeout" }
+                default       { $rule.Status }
+            }
+
+            $script:UI.ListAppRules.Items.Add([PSCustomObject]@{
+                Name            = $rule.Name
+                Status          = $statusBadge
+                QuotaDisplay    = $quotaDisp
+                ConsumedDisplay = $consumedDisp
+                LastUpdated     = $rule.LastUpdated
+                Path            = $rule.Path
+                RawRule         = $rule
+            }) | Out-Null
+        }
     }
 }
 
@@ -380,6 +461,9 @@ function Refresh-SettingsInputs {
     $script:UI.InputMonthlyLimit.Text = [string]$script:AppConfig.monthly_limit_gb
     $script:UI.InputMonthlyWarn.Text = [string]$script:AppConfig.warning_threshold_gb
     $script:UI.ChkSettingAutoMonthly.IsChecked = [bool]$script:AppConfig.auto_disconnect
+
+    $script:UI.ChkSettingPromptNewApps.IsChecked = [bool]$script:AppConfig.prompt_on_new_apps
+    $script:UI.InputPromptTimeout.Text = [string]$script:AppConfig.prompt_timeout_seconds
 
     $script:UI.ChkSettingStartWithWindows.IsChecked = Test-StartupTaskEnabled
     $script:UI.InputPollSeconds.Text = [string]$script:AppConfig.poll_frequency_seconds
